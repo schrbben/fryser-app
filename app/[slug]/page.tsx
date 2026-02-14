@@ -7,13 +7,14 @@ import { formatDate, getOwnerName } from '@/lib/utils'
 type SortMode = 'owner' | 'newest' | 'oldest'
 type View = 'main' | 'history'
 
-const SHARED_SLUG = 'felles' // Fast slug for delt fryser
+const SHARED_SLUG = 'felles'
 
 export default function FreezerPage() {
   const [room, setRoom] = useState<Room | null>(null)
   const [items, setItems] = useState<Item[]>([])
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [view, setView] = useState<View>('main')
   const [sortMode, setSortMode] = useState<SortMode>('owner')
   const [searchQuery, setSearchQuery] = useState('')
@@ -36,10 +37,12 @@ export default function FreezerPage() {
     person3_name: 'Person 3'
   })
 
+  // Initial load
   useEffect(() => {
     loadRoom()
   }, [])
 
+  // Setup realtime subscriptions
   useEffect(() => {
     if (!room) return
 
@@ -47,7 +50,10 @@ export default function FreezerPage() {
       .channel('items-changes')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'items', filter: `room_id=eq.${room.id}` },
-        () => loadItems()
+        () => {
+          console.log('Items changed - reloading')
+          loadItems()
+        }
       )
       .subscribe()
 
@@ -55,7 +61,10 @@ export default function FreezerPage() {
       .channel('history-changes')
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'history', filter: `room_id=eq.${room.id}` },
-        () => loadHistory()
+        () => {
+          console.log('History changed - reloading')
+          loadHistory()
+        }
       )
       .subscribe()
 
@@ -99,6 +108,8 @@ export default function FreezerPage() {
   const loadItems = async () => {
     if (!room) return
     
+    console.log('Loading items for room:', room.id)
+    
     const { data, error } = await supabase
       .from('items')
       .select('*')
@@ -111,6 +122,7 @@ export default function FreezerPage() {
       return
     }
 
+    console.log('Loaded items:', data?.length || 0)
     setItems(data || [])
   }
 
@@ -130,6 +142,13 @@ export default function FreezerPage() {
     }
 
     setHistory(data || [])
+  }
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    await loadItems()
+    await loadHistory()
+    setRefreshing(false)
   }
 
   const addToHistory = async (item: Item, action: string, quantityBefore?: number, quantityAfter?: number) => {
@@ -172,6 +191,9 @@ export default function FreezerPage() {
         note: ''
       })
       setShowAddModal(false)
+      
+      // Reload items immediately
+      await loadItems()
     } catch (error) {
       console.error('Feil ved legging til vare:', error)
       alert('Kunne ikke legge til vare')
@@ -200,6 +222,8 @@ export default function FreezerPage() {
         owner: 'person1',
         note: ''
       })
+      
+      await loadItems()
     } catch (error) {
       console.error('Feil ved oppdatering:', error)
       alert('Kunne ikke oppdatere vare')
@@ -345,14 +369,6 @@ export default function FreezerPage() {
             <p className="text-gray-600 mb-6">
               Fryseren må opprettes i Supabase først.
             </p>
-            <div className="bg-gray-50 rounded-lg p-4 text-left text-sm">
-              <p className="font-semibold mb-2">Kjør dette SQL-scriptet i Supabase:</p>
-              <code className="block bg-white p-3 rounded border text-xs overflow-x-auto">
-                INSERT INTO rooms (slug, person1_name, person2_name, person3_name)<br/>
-                VALUES ('felles', 'Person 1', 'Person 2', 'Person 3')<br/>
-                ON CONFLICT (slug) DO NOTHING;
-              </code>
-            </div>
           </div>
         </div>
       </div>
@@ -368,12 +384,23 @@ export default function FreezerPage() {
               <h1 className="text-2xl font-bold text-gray-800">🧊 Vår Fryser</h1>
               <p className="text-sm text-gray-500">Felles for alle</p>
             </div>
-            <button
-              onClick={() => setShowSettingsModal(true)}
-              className="text-2xl hover:scale-110 transition-transform"
-            >
-              ⚙️
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="text-2xl hover:scale-110 transition-transform disabled:opacity-50"
+                title="Oppdater"
+              >
+                {refreshing ? '⏳' : '🔄'}
+              </button>
+              <button
+                onClick={() => setShowSettingsModal(true)}
+                className="text-2xl hover:scale-110 transition-transform"
+                title="Innstillinger"
+              >
+                ⚙️
+              </button>
+            </div>
           </div>
 
           <div className="flex gap-2 mt-4">
@@ -451,7 +478,13 @@ export default function FreezerPage() {
               <div className="text-center py-12 text-gray-500">
                 <div className="text-6xl mb-4">❄️</div>
                 <p className="text-lg mb-2">Fryseren er tom</p>
-                <p className="text-sm">Trykk på + for å legge til noe</p>
+                <p className="text-sm mb-4">Trykk på + for å legge til noe</p>
+                <button
+                  onClick={handleRefresh}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                >
+                  🔄 Oppdater
+                </button>
               </div>
             ) : groupedByOwner ? (
               <div className="space-y-6">
