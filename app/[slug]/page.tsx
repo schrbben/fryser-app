@@ -1,17 +1,15 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
 import { supabase, type Item, type Room, type HistoryEntry } from '@/lib/supabase'
 import { formatDate, getOwnerName } from '@/lib/utils'
 
 type SortMode = 'owner' | 'newest' | 'oldest'
 type View = 'main' | 'history'
 
-export default function FreezerPage() {
-  const params = useParams()
-  const slug = params.slug as string
+const SHARED_SLUG = 'felles' // Fast slug for delt fryser
 
+export default function FreezerPage() {
   const [room, setRoom] = useState<Room | null>(null)
   const [items, setItems] = useState<Item[]>([])
   const [history, setHistory] = useState<HistoryEntry[]>([])
@@ -40,7 +38,7 @@ export default function FreezerPage() {
 
   useEffect(() => {
     loadRoom()
-  }, [slug])
+  }, [])
 
   useEffect(() => {
     if (!room) return
@@ -72,15 +70,14 @@ export default function FreezerPage() {
       const { data, error } = await supabase
         .from('rooms')
         .select('*')
-        .eq('slug', slug)
+        .eq('slug', SHARED_SLUG)
         .single()
 
       if (error) {
-        if (error.code === 'PGRST116') {
-          alert('Fryser ikke funnet')
-          window.location.href = '/'
-        }
-        throw error
+        console.error('Feil ved lasting av rom:', error)
+        alert('Kunne ikke laste fryser. Sjekk at du har kjørt SQL-scriptet i Supabase.')
+        setLoading(false)
+        return
       }
 
       setRoom(data)
@@ -93,6 +90,7 @@ export default function FreezerPage() {
       await loadHistory()
     } catch (error) {
       console.error('Feil ved lasting av rom:', error)
+      alert('Kunne ikke koble til database. Sjekk Supabase-innstillinger.')
     } finally {
       setLoading(false)
     }
@@ -337,7 +335,29 @@ export default function FreezerPage() {
     )
   }
 
-  if (!room) return null
+  if (!room) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8">
+          <div className="text-center">
+            <div className="text-6xl mb-4">❌</div>
+            <h1 className="text-2xl font-bold text-gray-800 mb-4">Fryser ikke funnet</h1>
+            <p className="text-gray-600 mb-6">
+              Fryseren må opprettes i Supabase først.
+            </p>
+            <div className="bg-gray-50 rounded-lg p-4 text-left text-sm">
+              <p className="font-semibold mb-2">Kjør dette SQL-scriptet i Supabase:</p>
+              <code className="block bg-white p-3 rounded border text-xs overflow-x-auto">
+                INSERT INTO rooms (slug, person1_name, person2_name, person3_name)<br/>
+                VALUES ('felles', 'Person 1', 'Person 2', 'Person 3')<br/>
+                ON CONFLICT (slug) DO NOTHING;
+              </code>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -345,8 +365,8 @@ export default function FreezerPage() {
         <div className="max-w-4xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-800">🧊 FryserApp</h1>
-              <p className="text-sm text-gray-500">Kode: {slug}</p>
+              <h1 className="text-2xl font-bold text-gray-800">🧊 Vår Fryser</h1>
+              <p className="text-sm text-gray-500">Felles for alle</p>
             </div>
             <button
               onClick={() => setShowSettingsModal(true)}
@@ -426,6 +446,7 @@ export default function FreezerPage() {
                 </button>
               </div>
             </div>
+
             {filteredItems.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <div className="text-6xl mb-4">❄️</div>
@@ -717,13 +738,13 @@ export default function FreezerPage() {
                     <input
                       type="text"
                       readOnly
-                      value={typeof window !== 'undefined' ? window.location.href : ''}
+                      value={typeof window !== 'undefined' ? window.location.origin + '/fryser' : ''}
                       className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded text-sm"
                     />
                     <button
                       type="button"
                       onClick={() => {
-                        navigator.clipboard.writeText(window.location.href)
+                        navigator.clipboard.writeText(window.location.origin + '/fryser')
                         alert('Lenke kopiert!')
                       }}
                       className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
@@ -837,4 +858,3 @@ function ItemRow({
     </div>
   )
 }
-
