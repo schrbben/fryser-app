@@ -66,6 +66,33 @@ export default function FreezerPage() {
     loadRoom()
   }, [])
 
+  // Oppdater automatisk 0,5 sek etter at fryseren er lastet inn
+  useEffect(() => {
+    if (!room) return
+    const timer = setTimeout(() => {
+      loadItems()
+      loadHistory()
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [room])
+
+  // Oppdater automatisk hver gang appen kommer tilbake i fokus
+  // (f.eks. når du bytter tilbake fra en annen app på mobilen)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && room) {
+        loadItems()
+        loadHistory()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('focus', handleVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', handleVisibility)
+    }
+  }, [room])
+
   useEffect(() => {
     if (!room) return
 
