@@ -1,0 +1,226 @@
+{
+  "containers": [
+    {
+      "kind": "box", "number": 1, "label": "Servise + div", "color": "clear", "placement": "shelf", "shelf": "A", "level": 3, "slot": 1,
+      "items": [
+        "Kaffiservise (hvitt med gullkant) x10",
+        "Ølglass x4",
+        "Grønn kopp",
+        "Blomstervase lyseblå",
+        "Kubbelysholder brun",
+        "Brunt frokostservise med kopper"
+      ]
+    },
+    {
+      "kind": "box", "number": 2, "label": "Drikkeflasker + kjøkkenutstyr", "color": "clear", "placement": "shelf", "shelf": "A", "level": 3, "slot": 2,
+      "items": [
+        "Drikkeflasker x3",
+        "Termos x4",
+        "Sugerør",
+        "Tuborg-glass",
+        "Stavmikser med tilbehør",
+        "Bordbrikker blå x5",
+        "Toastjern",
+        "Servietter x2",
+        "Kaffi fra Italia"
+      ]
+    },
+    {
+      "kind": "box", "number": 3, "label": "", "color": "clear", "placement": "shelf", "shelf": "A", "level": 3, "slot": 3,
+      "items": [
+        "Varmeteppe",
+        "Middagstallerkener x4",
+        "Pensumbøker sykepleien",
+        "Varmeflaske"
+      ]
+    },
+    {
+      "kind": "box", "number": 4, "label": "", "color": "clear", "placement": "shelf", "shelf": "A", "level": 3, "slot": 4,
+      "items": [
+        "Sovepose x2",
+        "Liggeunderlag x2",
+        "Tursekk"
+      ]
+    },
+    {
+      "kind": "box", "number": 5, "label": "", "color": "clear", "placement": "shelf", "shelf": "A", "level": 2, "slot": 1,
+      "items": []
+    },
+    {
+      "kind": "box", "number": 6, "label": "", "color": "clear", "placement": "shelf", "shelf": "A", "level": 2, "slot": 2,
+      "items": []
+    },
+    {
+      "kind": "box", "number": 7, "label": "", "color": "clear", "placement": "shelf", "shelf": "A", "level": 2, "slot": 3,
+      "items": [
+        "Bryllupskort",
+        "Gaveposer",
+        "Stjerneskudd",
+        "Discgolf starter kit",
+        "Keramikkskål oransje",
+        "Hvit kopp x2",
+        "Blå skål",
+        "Blå skjellskål",
+        "Glassbolle",
+        "Whiskeyglass x4",
+        "Drikkeglass x4",
+        "Blå skål x2",
+        "Brødkniv",
+        "Kjøkkenredskaper (kniv x2, visp, pastasleiv, tresleiv, pizzahjul, stekespade)",
+        "Gul og blå bolle (Antonie, Sør-Afrika)"
+      ]
+    },
+    {
+      "kind": "box", "number": 8, "label": "", "color": "clear", "placement": "shelf", "shelf": "A", "level": 2, "slot": 4,
+      "items": [
+        "Hvite håndklær x5",
+        "Klut x2",
+        "Sjakkhåndkle x3 (gave)",
+        "Beige håndkle x2 (gave)",
+        "Beige håndkle",
+        "Blått håndkle",
+        "Beige laken",
+        "Grønt blomsterdynetrekk",
+        "Blått blomsterdynetrekk",
+        "Grønt blomsterputetrekk",
+        "Blått blomsterputetrekk",
+        "Poser til sengetøy x6",
+        "Hvitt putetrekk x2",
+        "Hvitt dynetrekk x2"
+      ]
+    },
+    {
+      "kind": "box", "number": 9, "label": "", "color": "clear", "placement": "shelf", "shelf": "A", "level": 1, "slot": 1,
+      "items": [
+        "Ninja Creami",
+        "Smoothiemaskin",
+        "Hvitvinssaus glass",
+        "Lysestake (kan gis i gave)",
+        "Hengekøye",
+        "Telt"
+      ]
+    },
+    {
+      "kind": "box", "number": 10, "label": "", "color": "clear", "placement": "shelf", "shelf": "A", "level": 1, "slot": 2,
+      "items": [
+        "Hardanger bestikk x2",
+        "Plantepinner + tråd (for å stramme opp)",
+        "Hardanger bestikk fruktkniver",
+        "Posterrull x2",
+        "Hvitvinsglass / vinglass x6",
+        "Crepepapir"
+      ]
+    },
+    {
+      "kind": "box", "number": 11, "label": "Uten lapp", "color": "clear", "placement": "shelf", "shelf": "A", "level": 1, "slot": 3,
+      "items": [
+        "Bøker",
+        "Julepynt"
+      ]
+    },
+    {
+      "kind": "box", "number": 12, "label": "", "color": "clear", "placement": "shelf", "shelf": "A", "level": 1, "slot": 4,
+      "items": [
+        "Klær til salgs",
+        "Babyklær",
+        "Aloha hawaiibånd x2"
+      ]
+    },
+    {
+      "kind": "box", "number": 13, "label": "Hvit avlang", "color": "white", "placement": "shelf", "shelf": "B", "level": 3, "slot": 1,
+      "items": [
+        "Klær som skal selges"
+      ]
+    },
+    {
+      "kind": "box", "number": 14, "label": "", "color": "clear", "placement": "shelf", "shelf": "B", "level": 3, "slot": 2,
+      "items": [
+        "Barndomsting",
+        "Parykker",
+        "Hjerte-lunge-redning",
+        "Bandana",
+        "Bilder fra utdrikningslag",
+        "Hest fra utdrikningslag",
+        "Strikketøy",
+        "Sokk til Emma",
+        "Genser til pappa",
+        "Målebånd",
+        "Blått papir / hobbypapir",
+        "Ballonger",
+        "Glassvaser fra bryllupet x5",
+        "Julekrybbe",
+        "Sydenvifte",
+        "Gul feber vaksinemotstander",
+        "STORYTIME fra Tanzania",
+        "CD-spiller Watoto",
+        "Årbok Smiodden",
+        "Russehettegenser",
+        "Russedress",
+        "Hola hola Hawaii"
+      ]
+    },
+    {
+      "kind": "box", "number": 15, "label": "", "color": "clear", "placement": "shelf", "shelf": "B", "level": 3, "slot": 3,
+      "items": [
+        "Fretex-ting",
+        "Lyseblå tallerken fra mams og paps"
+      ]
+    },
+    {
+      "kind": "box", "number": 16, "label": "", "color": "clear", "placement": "shelf", "shelf": "B", "level": 3, "slot": 4,
+      "items": [
+        "Sommerklær",
+        "Bergans turjakke rosa",
+        "Sett fra Karen",
+        "Grønn turbukse",
+        "Swix-jakke",
+        "Offwhite strikkegenser",
+        "Brun vest fra farmor",
+        "Velur-dressjakker fra Erle x2",
+        "Skinnhansker",
+        "Armani dressjakke x2",
+        "Bryllupskjole med farger",
+        "Rød juleduk",
+        "Strikkeutstyr: prosjekt grønn og hvit genser"
+      ]
+    },
+    {
+      "kind": "box", "number": 17, "label": "", "color": "clear", "placement": "shelf", "shelf": "B", "level": 2, "slot": 1,
+      "items": [
+        "Barndomsting",
+        "Day bag: GÅ GJENNOM",
+        "Angstbok og perm",
+        "Rødt regntøy",
+        "Sommerklær",
+        "Russegenser"
+      ]
+    },
+    {
+      "kind": "suitcase", "number": null, "label": "Samsonite koffert", "color": "black", "placement": "floor", "pos_x": 0.32, "pos_z": 1.85, "rotation": 90,
+      "items": [
+        "Hest",
+        "Tøymykner",
+        "Vaskemiddel"
+      ]
+    },
+    {
+      "kind": "cardboard", "number": null, "label": "Pappboks", "color": "brown", "placement": "floor", "pos_x": 0.3, "pos_z": 2.55, "rotation": 0,
+      "items": [
+        "Servise fra mormor",
+        "Tallerken",
+        "Skål",
+        "Kopp",
+        "Gammel spotlampe",
+        "Gaffateip"
+      ]
+    },
+    {
+      "kind": "bin", "number": null, "label": "Plastboks (lilla, blå, oransje)", "color": "purple", "placement": "elsewhere", "location": "Lille soverom",
+      "items": [
+        "Perler til perling av smykker",
+        "Maleutstyr",
+        "Maling"
+      ]
+    }
+  ]
+}

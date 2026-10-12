@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { supabase, type Item, type Room, type HistoryEntry } from '@/lib/supabase'
 import { formatDate } from '@/lib/utils'
+import AppSwitcher from '@/components/AppSwitcher'
 
 type SortMode = 'newest' | 'oldest'
 type View = 'main' | 'history'
@@ -342,7 +343,8 @@ export default function FreezerPage() {
       <header className="bg-white border-b border-slate-100 sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold text-slate-800">🧊 Fryseren</h1>
+            <h1 className="sr-only">Fryseren</h1>
+            <AppSwitcher active="fryser" />
             <div className="flex gap-3 text-lg">
               <button onClick={handleRefresh} disabled={refreshing} title="Oppdater">
                 {refreshing ? '⏳' : '🔄'}
