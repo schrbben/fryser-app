@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { COLORS, KINDS, KIND_ORDER, type ContainerKind } from '@/lib/storage'
+import { COLORS, KINDS, KIND_ORDER, SIZES, SIZE_ORDER, hasSizes, type BoxSize, type ContainerKind, type Shape } from '@/lib/storage'
 
 export type ContainerDraft = {
   kind: ContainerKind
+  size: BoxSize
   number: number | null
   label: string
   color: string
@@ -19,12 +20,12 @@ const LABEL_PLACEHOLDERS: Record<ContainerKind, string> = {
   loose: 'f.eks. Løse ting ved døra',
 }
 
-export default function ContainerDialog({ title, initial, hereText, onShelf, canPlaceInBod, startElsewhere, takenNumbers, submitLabel, onSave, onDelete, onCancel }: {
+export default function ContainerDialog({ title, initial, hereText, placeNote, canPlaceInBod, startElsewhere, takenNumbers, submitLabel, onSave, onDelete, onCancel }: {
   title: string
   initial: ContainerDraft
   hereText: string
-  onShelf: boolean
-  canPlaceInBod: (kind: ContainerKind) => boolean
+  placeNote?: string // vises når noe ikke får plass der den står
+  canPlaceInBod: (shape: Shape) => boolean
   startElsewhere: boolean
   takenNumbers: Set<number>
   submitLabel: string
@@ -45,11 +46,18 @@ export default function ContainerDialog({ title, initial, hereText, onShelf, can
         : takenNumbers.has(number)
           ? `Nummer ${number} er allerede i bruk`
           : null
-  const blocked = (kind: ContainerKind) => !elsewhere && !canPlaceInBod(kind)
-  const canSave = !numberError && !blocked(draft.kind)
+  const shapeOf = (kind: ContainerKind, size: BoxSize): Shape => ({ kind, size: hasSizes(kind) ? size : 'normal' })
+  const fits = (kind: ContainerKind, size: BoxSize) => elsewhere || canPlaceInBod(shapeOf(kind, size))
+  // En type kan velges hvis minst én størrelse av den får plass
+  const kindFits = (kind: ContainerKind) => (hasSizes(kind) ? SIZE_ORDER.some(size => fits(kind, size)) : fits(kind, 'normal'))
+  const canSave = !numberError && fits(draft.kind, draft.size)
+  const anyBlocked = KIND_ORDER.some(kind => !kindFits(kind)) || (hasSizes(draft.kind) && SIZE_ORDER.some(size => !fits(draft.kind, size)))
 
   const setKind = (kind: ContainerKind) =>
-    setDraft(d => ({ ...d, kind, color: KINDS[kind].colors.includes(d.color) ? d.color : KINDS[kind].colors[0] }))
+    setDraft(d => {
+      const size = hasSizes(kind) ? SIZE_ORDER.find(s => s === d.size && fits(kind, s)) ?? SIZE_ORDER.find(s => fits(kind, s)) ?? 'normal' : 'normal'
+      return { ...d, kind, size, color: KINDS[kind].colors.includes(d.color) ? d.color : KINDS[kind].colors[0] }
+    })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -57,6 +65,7 @@ export default function ContainerDialog({ title, initial, hereText, onShelf, can
     onSave(
       {
         ...draft,
+        size: hasSizes(draft.kind) ? draft.size : 'normal',
         number: draft.kind === 'box' ? number : null,
         label: draft.label.trim(),
         location: elsewhere ? draft.location.trim() : '',
@@ -88,7 +97,7 @@ export default function ContainerDialog({ title, initial, hereText, onShelf, can
               <button
                 key={kind}
                 type="button"
-                disabled={blocked(kind)}
+                disabled={!kindFits(kind)}
                 onClick={() => setKind(kind)}
                 className={`flex flex-col items-center rounded-xl border px-2 py-2 text-xs font-semibold disabled:opacity-35 ${
                   draft.kind === kind ? 'border-amber-500 bg-amber-50' : 'border-stone-200 bg-white'
@@ -99,14 +108,30 @@ export default function ContainerDialog({ title, initial, hereText, onShelf, can
               </button>
             ))}
           </div>
-          {onShelf && !elsewhere && (
-            <p className="mt-1.5 text-xs text-stone-400">
-              {blocked('suitcase')
-                ? 'En koffert tar to plasser i hylla, og det er ikke to ledige plasser ved siden av hverandre her.'
-                : 'En koffert tar to plasser i hylla.'}
-            </p>
-          )}
+          {!elsewhere && anyBlocked && placeNote && <p className="mt-1.5 text-xs text-stone-400">{placeNote}</p>}
         </fieldset>
+
+        {hasSizes(draft.kind) && (
+          <fieldset className="mt-4">
+            <legend className="text-xs font-semibold text-stone-500">Størrelse</legend>
+            <div className="mt-1.5 grid grid-cols-3 gap-2">
+              {SIZE_ORDER.map(size => (
+                <button
+                  key={size}
+                  type="button"
+                  disabled={!fits(draft.kind, size)}
+                  onClick={() => setDraft(d => ({ ...d, size }))}
+                  className={`rounded-xl border px-2 py-2 text-left text-sm disabled:opacity-35 ${
+                    draft.size === size ? 'border-amber-500 bg-amber-50 font-semibold' : 'border-stone-200 bg-white'
+                  }`}
+                >
+                  {SIZES[size].name}
+                  <span className="block text-[11px] font-normal text-stone-500">{SIZES[size].hint}</span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        )}
 
         {draft.kind === 'box' && (
           <label className="mt-4 block">

@@ -5,16 +5,18 @@
 create table if not exists storage_boxes (
   id uuid primary key default gen_random_uuid(),
   kind text not null default 'box' check (kind in ('box', 'bin', 'suitcase', 'cardboard', 'loose')),
+  size text not null default 'normal' check (size in ('normal', 'low', 'long')),
   number int unique,                                   -- nummeret på lappen (plastboksene)
   label text not null default '',
   color text not null default 'clear',
-  placement text not null default 'shelf' check (placement in ('shelf', 'floor', 'elsewhere')),
+  placement text not null default 'shelf' check (placement in ('shelf', 'floor', 'elsewhere', 'stacked')),
   shelf text check (shelf in ('A', 'B')),              -- A = innerst, B = høyre vegg
-  level int check (level between 1 and 3),             -- 1 = nederst, 3 = øverst
+  level int check (level between 1 and 4),             -- 1 = nederst, 3 = øverst, 4 = oppå hylla
   slot int check (slot between 1 and 4),               -- 1 = lengst til venstre
   pos_x real,                                          -- plass på gulvet, meter fra venstre vegg
   pos_z real,                                          -- plass på gulvet, meter fra innerste vegg
   rotation real not null default 0,                    -- grader
+  stack_on uuid references storage_boxes(id) on delete set null, -- boksen den står oppå
   location text not null default '',                   -- hvor den står hvis den ikke er i boden
   created_at timestamptz not null default now()
 );

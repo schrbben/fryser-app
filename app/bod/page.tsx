@@ -12,17 +12,24 @@ import EditPanel, { EDIT_PANEL } from '@/components/bod/EditPanel'
 import type { Insets, Preset } from '@/components/bod/StorageScene'
 import {
   KINDS,
-  boxInSlot,
+  baseOf,
   boxLabelSuffix,
   boxName,
+  childOf,
+  clearance,
   createDemoData,
   describePlacement,
   describeSlot,
+  heightOf,
   nextFreeNumber,
+  rootOf,
   searchBoxes,
   shelfStartFor,
   slotOf,
-  slotSpan,
+  spanOf,
+  stackProblem,
+  towerHeight,
+  withDefaults,
   type Slot,
   type StorageBox,
   type StorageItem,
@@ -48,18 +55,18 @@ const DEFAULT_FLOOR = { x: 0.95, z: 2 }
 
 type Status = 'loading' | 'ready' | 'demo' | 'error'
 type Toast = { message: string; undo?: () => void }
-type PlacementFields = Pick<StorageBox, 'placement' | 'shelf' | 'level' | 'slot' | 'pos_x' | 'pos_z'>
+type PlacementFields = Pick<StorageBox, 'placement' | 'shelf' | 'level' | 'slot' | 'pos_x' | 'pos_z' | 'stack_on'>
 type AddTarget = { kind: 'slot'; slot: Slot } | { kind: 'floor'; x: number; z: number } | { kind: 'any' }
 type Dialog = { mode: 'add'; target: AddTarget } | { mode: 'edit'; boxId: string }
 
 const round = (n: number) => Math.round(n * 100) / 100
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n))
 
-const shelfFields = (slot: Slot): PlacementFields => ({ placement: 'shelf', shelf: slot.shelf, level: slot.level, slot: slot.slot, pos_x: null, pos_z: null })
-const floorFields = (x: number, z: number): PlacementFields => ({ placement: 'floor', shelf: null, level: null, slot: null, pos_x: round(x), pos_z: round(z) })
-const elsewhereFields: PlacementFields = { placement: 'elsewhere', shelf: null, level: null, slot: null, pos_x: null, pos_z: null }
-const samePlacement = (a: PlacementFields, b: PlacementFields) =>
-  a.placement === b.placement && a.shelf === b.shelf && a.level === b.level && a.slot === b.slot && a.pos_x === b.pos_x && a.pos_z === b.pos_z
+const EMPTY_PLACEMENT = { shelf: null, level: null, slot: null, pos_x: null, pos_z: null, stack_on: null }
+const shelfFields = (slot: Slot): PlacementFields => ({ ...EMPTY_PLACEMENT, placement: 'shelf', shelf: slot.shelf, level: slot.level, slot: slot.slot })
+const floorFields = (x: number, z: number): PlacementFields => ({ ...EMPTY_PLACEMENT, placement: 'floor', pos_x: round(x), pos_z: round(z) })
+const stackedFields = (baseId: string): PlacementFields => ({ ...EMPTY_PLACEMENT, placement: 'stacked', stack_on: baseId })
+const elsewhereFields: PlacementFields = { ...EMPTY_PLACEMENT, placement: 'elsewhere' }
 const placementOf = (box: StorageBox): PlacementFields => ({
   placement: box.placement,
   shelf: box.shelf,
@@ -67,6 +74,7 @@ const placementOf = (box: StorageBox): PlacementFields => ({
   slot: box.slot,
   pos_x: box.pos_x,
   pos_z: box.pos_z,
+  stack_on: box.stack_on,
 })
 
 // Første ledige plass på gulvet (minst ca. en halv meter fra det som står der fra før)
@@ -89,6 +97,66 @@ function isMissingTable(error: { code?: string }) {
   return error.code === 'PGRST205' || error.code === '42P01'
 }
 
+// Grunnen til at to ting ikke kan bytte plass, eller null hvis det går fint
+function swapProblem(boxes: StorageBox[], a: StorageBox, b: StorageBox): string | null {
+  if (a.placement === 'floor' && b.placement === 'floor') return null
+  const slotA = slotOf(a)
+  const slotB = slotOf(b)
+  if (!slotA || !slotB) return 'Bytte plass går bare mellom to ting i hyllene eller to ting på gulvet.'
+  if (spanOf(a) !== spanOf(b)) return 'De tar ikke like mange plasser i hylla.'
+  if (towerHeight(boxes, a) > clearance(slotB.level) + 0.001 || towerHeight(boxes, b) > clearance(slotA.level) + 0.001) {
+    return 'En av dem er for høy til den andre plassen.'
+  }
+  return null
+}
+
+// Hvorfor noe ikke får plass på en ledig hylleplass
+function slotProblem(boxes: StorageBox[], box: StorageBox, slot: Slot): string {
+  if (towerHeight(boxes, box) > clearance(slot.level) + 0.001) {
+    return slot.level === 4 ? 'På toppen av hylla er det bare plass til lave ting.' : 'Det er ikke høyt nok her.'
+  }
+  return spanOf(box) > 1 ? 'Den tar to plasser, og det er ikke to ledige plasser ved siden av hverandre her.' : 'Plassen er opptatt.'
+}
+
+function MoveChoice({ mover, target, swapReason, stackReason, onSwap, onStack, onCancel }: {
+  mover: StorageBox
+  target: StorageBox
+  swapReason: string | null
+  stackReason: string | null
+  onSwap: () => void
+  onStack: () => void
+  onCancel: () => void
+}) {
+  const option = (label: string, reason: string | null, onClick: () => void) => (
+    <button
+      onClick={onClick}
+      disabled={reason !== null}
+      className="w-full rounded-xl border border-stone-200 px-4 py-3 text-left font-semibold enabled:hover:bg-amber-50 disabled:opacity-50"
+    >
+      {label}
+      {reason && <span className="block text-xs font-normal text-stone-500">{reason}</span>}
+    </button>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center" onClick={onCancel}>
+      <div
+        onClick={e => e.stopPropagation()}
+        className="w-full sm:max-w-sm bg-white text-stone-900 rounded-t-3xl sm:rounded-3xl shadow-2xl px-5 pt-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] space-y-2"
+      >
+        <h2 className="text-lg font-extrabold mb-2">
+          Flytte {boxName(mover)} til {boxName(target)}?
+        </h2>
+        {option(`↔ Bytt plass med ${boxName(target)}`, swapReason, onSwap)}
+        {option(`⬆ Sett oppå ${boxName(target)}`, stackReason, onStack)}
+        <button onClick={onCancel} className="w-full rounded-xl bg-stone-100 py-2.5 font-semibold text-stone-700">
+          Avbryt
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function BodPage() {
   const [boxes, setBoxes] = useState<StorageBox[]>([])
   const [items, setItems] = useState<StorageItem[]>([])
@@ -101,6 +169,8 @@ export default function BodPage() {
   const [map, setMap] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [editSelectedId, setEditSelectedId] = useState<string | null>(null)
+  const [moving, setMoving] = useState(false)
+  const [choiceTargetId, setChoiceTargetId] = useState<string | null>(null)
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [area, setArea] = useState({ width: 0, height: 0 })
@@ -112,6 +182,14 @@ export default function BodPage() {
   const live = status === 'ready'
 
   const load = useCallback(async () => {
+    // ?demo i adressen viser eksempeldata uten å røre databasen (nyttig for å teste)
+    if (new URLSearchParams(window.location.search).has('demo')) {
+      const data = createDemoData()
+      setBoxes(data.boxes)
+      setItems(data.items)
+      setStatus('demo')
+      return
+    }
     const [boxResult, itemResult] = await Promise.all([
       supabase.from('storage_boxes').select('*').order('number', { nullsFirst: false }),
       supabase.from('storage_items').select('*').order('created_at'),
@@ -129,7 +207,7 @@ export default function BodPage() {
       }
       return
     }
-    setBoxes(boxResult.data ?? [])
+    setBoxes((boxResult.data ?? []).map(withDefaults))
     setItems(itemResult.data ?? [])
     setStatus('ready')
   }, [])
@@ -243,44 +321,59 @@ export default function BodPage() {
     if (!demo) persist(supabase.from('storage_boxes').update(changes).eq('id', box.id))
   }
 
-  const moveBox = (box: StorageBox, target: PlacementFields) => {
-    const from = placementOf(box)
-    if (samePlacement(from, target)) return
-    const targetSlot = target.placement === 'shelf' && target.shelf ? { shelf: target.shelf, level: target.level!, slot: target.slot! } : null
-    const occupant = targetSlot ? boxInSlot(boxes, targetSlot, box.id) : null
-    // Bytte plass går bare mellom to ting i hylla som er like brede
-    if (occupant && (box.placement !== 'shelf' || slotSpan(box.kind) !== slotSpan(occupant.kind))) {
-      showToast(`Plassen er opptatt av ${boxName(occupant)}. Flytt den først.`)
-      return
-    }
-    setBoxes(prev =>
-      prev.map(b => (b.id === box.id ? { ...b, ...target } : occupant && b.id === occupant.id ? { ...b, ...from } : b))
-    )
-    showToast(occupant ? `${boxName(box)} og ${boxName(occupant)} har byttet plass` : `${boxName(box)} er flyttet`)
-    if (demo) return
-    persist(supabase.from('storage_boxes').update(target).eq('id', box.id))
-    if (occupant) persist(supabase.from('storage_boxes').update(from).eq('id', occupant.id))
+  // Det som står oppå blir med når noe flyttes
+  const placeBox = (box: StorageBox, target: PlacementFields, message: string) => {
+    setBoxes(prev => prev.map(b => (b.id === box.id ? { ...b, ...target } : b)))
+    showToast(message)
+    if (!demo) persist(supabase.from('storage_boxes').update(target).eq('id', box.id))
   }
 
-  const restoreBox = async (box: StorageBox, boxItems: StorageItem[]) => {
-    setBoxes(prev => (prev.some(b => b.id === box.id) ? prev : [...prev, box]))
+  const swapBoxes = (a: StorageBox, b: StorageBox) => {
+    const placeA = placementOf(a)
+    const placeB = placementOf(b)
+    setBoxes(prev => prev.map(x => (x.id === a.id ? { ...x, ...placeB } : x.id === b.id ? { ...x, ...placeA } : x)))
+    showToast(`${boxName(a)} og ${boxName(b)} har byttet plass`)
+    if (demo) return
+    persist(supabase.from('storage_boxes').update(placeB).eq('id', a.id))
+    persist(supabase.from('storage_boxes').update(placeA).eq('id', b.id))
+  }
+
+  const restoreBox = async (box: StorageBox, boxItems: StorageItem[], child: StorageBox | null) => {
+    setBoxes(prev => {
+      const restored = prev.some(b => b.id === box.id) ? prev : [...prev, box]
+      return child ? restored.map(b => (b.id === child.id ? { ...b, ...stackedFields(box.id) } : b)) : restored
+    })
     setItems(prev => [...prev.filter(i => i.box_id !== box.id), ...boxItems])
     setToast(null)
     if (demo) return
     const { error } = await supabase.from('storage_boxes').insert(box)
     if (error) return reportError(error)
     if (boxItems.length > 0) persist(supabase.from('storage_items').insert(boxItems))
+    if (child) persist(supabase.from('storage_boxes').update(stackedFields(box.id)).eq('id', child.id))
   }
 
+  // Det som stod oppå havner der boksen stod
   const removeBox = (box: StorageBox) => {
     const boxItems = items.filter(i => i.box_id === box.id)
     if (boxItems.length > 0 && !window.confirm(`Fjerne ${boxName(box)} og alt som ligger i den (${boxItems.length} ting)?`)) return
-    setBoxes(prev => prev.filter(b => b.id !== box.id))
+    const child = childOf(boxes, box)
+    const from = placementOf(box)
+    setBoxes(prev => prev.filter(b => b.id !== box.id).map(b => (child && b.id === child.id ? { ...b, ...from } : b)))
     setItems(prev => prev.filter(i => i.box_id !== box.id))
     if (selectedId === box.id) setSelectedId(null)
-    if (editSelectedId === box.id) setEditSelectedId(null)
-    showToast(`${boxName(box)} er fjernet`, () => restoreBox(box, boxItems))
-    if (!demo) persist(supabase.from('storage_boxes').delete().eq('id', box.id))
+    if (editSelectedId === box.id) {
+      setEditSelectedId(null)
+      setMoving(false)
+    }
+    showToast(`${boxName(box)} er fjernet`, () => restoreBox(box, boxItems, child))
+    if (demo) return
+    ;(async () => {
+      if (child) {
+        const { error } = await supabase.from('storage_boxes').update(from).eq('id', child.id)
+        if (error) return reportError(error)
+      }
+      persist(supabase.from('storage_boxes').delete().eq('id', box.id))
+    })()
   }
 
   // ---------- Avledet tilstand ----------
@@ -329,11 +422,12 @@ export default function BodPage() {
     setPresetNonce(n => n + 1)
   }
 
-  const enterEdit = (selectId: string | null = null) => {
+  const enterEdit = (selectId: string | null = null, startMoving = false) => {
     setSelectedId(null)
     setSearchOpen(false)
     setEditMode(true)
     setEditSelectedId(selectId)
+    setMoving(startMoving && selectId !== null)
     setPresetNonce(n => n + 1)
     if (showHint) dismissHint()
   }
@@ -341,41 +435,46 @@ export default function BodPage() {
   const exitEdit = () => {
     setEditMode(false)
     setEditSelectedId(null)
+    setMoving(false)
     setMap(false)
     setPresetNonce(n => n + 1)
   }
 
+  // Ferdig med en flytting: ingenting er valgt lenger
+  const finishMove = () => {
+    setMoving(false)
+    setEditSelectedId(null)
+    setChoiceTargetId(null)
+  }
+
+  // I redigeringsmodus velger et trykk bare boksen. Flytting skjer først etter «Flytt».
   const handleBoxClick = (id: string) => {
     if (!editMode) {
       openBox(id)
       return
     }
-    if (!editSelectedId || editSelectedId === id) {
-      setEditSelectedId(editSelectedId === id ? null : id)
+    if (moving && editSelected) {
+      if (id === editSelected.id) setMoving(false)
+      else setChoiceTargetId(id)
       return
     }
-    const target = boxes.find(b => b.id === id)
-    if (editSelected && target && slotOf(editSelected) && slotOf(target) && slotSpan(editSelected.kind) === slotSpan(target.kind)) {
-      moveBox(editSelected, placementOf(target))
-      setEditSelectedId(null)
-    } else {
-      setEditSelectedId(id)
-    }
+    setEditSelectedId(editSelectedId === id ? null : id)
   }
 
   const handleSlotClick = (slot: Slot) => {
     if (!editMode) return
-    if (!editSelected) {
-      setDialog({ mode: 'add', target: { kind: 'slot', slot } })
+    if (moving && editSelected) {
+      const start = shelfStartFor(boxes, slot, editSelected, towerHeight(boxes, editSelected), editSelected.id)
+      if (!start) {
+        showToast(slotProblem(boxes, editSelected, slot))
+        return
+      }
+      placeBox(editSelected, shelfFields(start), `${boxName(editSelected)} er flyttet`)
+      finishMove()
       return
     }
-    const start = shelfStartFor(boxes, slot, slotSpan(editSelected.kind), editSelected.id)
-    if (!start) {
-      showToast('Kofferten trenger to ledige plasser ved siden av hverandre')
-      return
-    }
-    moveBox(editSelected, shelfFields(start))
     setEditSelectedId(null)
+    setDialog({ mode: 'add', target: { kind: 'slot', slot } })
   }
 
   const handleFloorClick = ({ x, z }: { x: number; z: number }) => {
@@ -383,26 +482,27 @@ export default function BodPage() {
       if (selectedId) setSelectedId(null)
       return
     }
-    const px = clamp(x, 0.2, 1.8)
-    const pz = clamp(z, 0.2, 2.8)
-    if (editSelected) {
-      moveBox(editSelected, floorFields(px, pz))
-      setEditSelectedId(null)
-    } else {
-      setDialog({ mode: 'add', target: { kind: 'floor', x: px, z: pz } })
+    if (moving && editSelected) {
+      placeBox(editSelected, floorFields(clamp(x, 0.2, 1.8), clamp(z, 0.2, 2.8)), `${boxName(editSelected)} er flyttet`)
+      finishMove()
+      return
     }
+    setEditSelectedId(null)
   }
 
   const handleBackgroundClick = () => {
-    if (editMode) setEditSelectedId(null)
-    else if (selectedId) setSelectedId(null)
+    if (editMode) {
+      if (!moving) setEditSelectedId(null)
+    } else if (selectedId) {
+      setSelectedId(null)
+    }
   }
 
   const saveDialog = (draft: ContainerDraft, elsewhere: boolean) => {
     if (!dialog) return
     if (dialog.mode === 'add') {
       const target = dialog.target
-      const start = target.kind === 'slot' ? shelfStartFor(boxes, target.slot, slotSpan(draft.kind)) : null
+      const start = target.kind === 'slot' ? shelfStartFor(boxes, target.slot, draft, heightOf(draft)) : null
       const placement = elsewhere
         ? elsewhereFields
         : start
@@ -411,13 +511,21 @@ export default function BodPage() {
             ? floorFields(target.x, target.z)
             : freeFloorFields(boxes)
       const box = createBox({ ...draft, ...placement, rotation: 0 })
-      showToast(`${boxName(box)} er lagt til`)
-      setEditSelectedId(null)
+      if (target.kind === 'any' && !elsewhere) {
+        // Nytt på gulvet: velg det og la brukeren trykke der det skal stå
+        setEditSelectedId(box.id)
+        setMoving(true)
+        showToast(`${boxName(box)} er lagt til. Trykk der den skal stå.`)
+      } else {
+        setEditSelectedId(null)
+        showToast(`${boxName(box)} er lagt til`)
+      }
     } else {
       const box = boxes.find(b => b.id === dialog.boxId)
       if (box) {
-        const current = slotOf(box)
-        const start = current && slotSpan(draft.kind) !== slotSpan(box.kind) ? shelfStartFor(boxes, current, slotSpan(draft.kind), box.id) : null
+        const slot = slotOf(box)
+        const shapeChanged = draft.kind !== box.kind || draft.size !== box.size
+        const start = slot && shapeChanged ? shelfStartFor(boxes, slot, draft, towerHeight(boxes, box, draft), box.id) : null
         const placement: Partial<PlacementFields> =
           elsewhere && box.placement !== 'elsewhere'
             ? elsewhereFields
@@ -465,20 +573,27 @@ export default function BodPage() {
     if (!dialog) return null
     if (dialog.mode === 'add') {
       const target = dialog.target
-      const onShelf = target.kind === 'slot'
+      const slot = target.kind === 'slot' ? target.slot : null
       return (
         <ContainerDialog
           title="Legg til i boden"
           initial={{
-            kind: onShelf ? 'box' : 'suitcase',
-            number: onShelf ? nextFreeNumber(boxes) : null,
+            kind: slot ? 'box' : 'suitcase',
+            size: slot?.level === 4 ? 'low' : 'normal',
+            number: slot ? nextFreeNumber(boxes) : null,
             label: '',
-            color: onShelf ? 'clear' : 'black',
+            color: slot ? 'clear' : 'black',
             location: '',
           }}
-          hereText={target.kind === 'slot' ? describeSlot(target.slot) : target.kind === 'floor' ? 'På gulvet der du trykket' : 'På gulvet'}
-          onShelf={onShelf}
-          canPlaceInBod={kind => target.kind !== 'slot' || shelfStartFor(boxes, target.slot, slotSpan(kind)) !== null}
+          hereText={slot ? describeSlot(slot) : target.kind === 'floor' ? 'På gulvet der du trykket' : 'På gulvet'}
+          placeNote={
+            slot
+              ? slot.level === 4
+                ? 'På toppen av hylla er det bare plass til lave ting.'
+                : 'Noe er sperret fordi det ikke får plass her. En koffert og en lav, lang boks tar to plasser.'
+              : undefined
+          }
+          canPlaceInBod={shape => !slot || shelfStartFor(boxes, slot, shape, heightOf(shape)) !== null}
           startElsewhere={false}
           takenNumbers={takenNumbers(null)}
           submitLabel="Legg til"
@@ -489,17 +604,22 @@ export default function BodPage() {
     }
     const box = boxes.find(b => b.id === dialog.boxId)
     if (!box) return null
+    const slot = slotOf(box)
+    const base = baseOf(boxes, box)
     return (
       <ContainerDialog
         key={box.id}
         title={`Endre ${boxName(box)}`}
-        initial={{ kind: box.kind, number: box.number, label: box.label, color: box.color, location: box.location }}
-        hereText={box.placement === 'elsewhere' ? 'Settes på gulvet' : describePlacement(box)}
-        onShelf={box.placement === 'shelf'}
-        canPlaceInBod={kind => {
-          const current = slotOf(box)
-          return !current || shelfStartFor(boxes, current, slotSpan(kind), box.id) !== null
-        }}
+        initial={{ kind: box.kind, size: box.size, number: box.number, label: box.label, color: box.color, location: box.location }}
+        hereText={box.placement === 'elsewhere' ? 'Settes på gulvet' : describePlacement(box, boxes)}
+        placeNote={slot ? 'Noe er sperret fordi det ikke får plass der den står nå.' : base ? `Noe er sperret fordi det ikke får plass oppå ${boxName(base)}.` : undefined}
+        canPlaceInBod={shape =>
+          slot
+            ? shelfStartFor(boxes, slot, shape, towerHeight(boxes, box, shape), box.id) !== null
+            : base
+              ? stackProblem(boxes, box, shape, towerHeight(boxes, box, shape), base) === null
+              : true
+        }
         startElsewhere={box.placement === 'elsewhere'}
         takenNumbers={takenNumbers(box.id)}
         submitLabel="Lagre"
@@ -509,6 +629,28 @@ export default function BodPage() {
           removeBox(box)
         }}
         onCancel={() => setDialog(null)}
+      />
+    )
+  })()
+
+  const choiceElement = (() => {
+    const target = boxes.find(b => b.id === choiceTargetId)
+    if (!target || !editSelected) return null
+    return (
+      <MoveChoice
+        mover={editSelected}
+        target={target}
+        swapReason={swapProblem(boxes, editSelected, target)}
+        stackReason={stackProblem(boxes, editSelected, editSelected, towerHeight(boxes, editSelected), target)}
+        onSwap={() => {
+          swapBoxes(editSelected, target)
+          finishMove()
+        }}
+        onStack={() => {
+          placeBox(editSelected, stackedFields(target.id), `${boxName(editSelected)} står nå oppå ${boxName(target)}`)
+          finishMove()
+        }}
+        onCancel={() => setChoiceTargetId(null)}
       />
     )
   })()
@@ -569,7 +711,7 @@ export default function BodPage() {
                               {boxName(hit.box)}
                               {boxLabelSuffix(hit.box) && <span className="font-semibold text-stone-500"> · {boxLabelSuffix(hit.box)}</span>}
                             </span>
-                            <span className="text-xs text-stone-400 text-right">{describePlacement(hit.box)}</span>
+                            <span className="text-xs text-stone-400 text-right">{describePlacement(hit.box, boxes)}</span>
                           </div>
                           {hit.items.length > 0 && (
                             <div className="mt-1.5 flex flex-wrap gap-1">
@@ -611,7 +753,7 @@ export default function BodPage() {
 
         {demo && !selectedBox && !editMode && (
           <div className="absolute top-3 left-3 right-3 z-10 mx-auto max-w-md rounded-xl bg-amber-400/95 px-3 py-2 text-xs text-stone-900 shadow-lg">
-            <strong>Demo</strong> – endringer lagres ikke før <code className="font-mono">supabase/bod.sql</code> er kjørt i Supabase.
+            <strong>Demo</strong> – eksempeldata, endringer lagres ikke.
           </div>
         )}
 
@@ -621,7 +763,7 @@ export default function BodPage() {
             <ul className="space-y-1 text-stone-300">
               <li>👆 Dra for å snu rommet, knip for å zoome</li>
               <li>📦 Trykk på en boks for å åpne den</li>
-              <li>✏️ Trykk «Rediger» for å flytte, legge til eller fjerne</li>
+              <li>✏️ Trykk «Rediger» for å endre, flytte, legge til eller fjerne</li>
             </ul>
             <button onClick={dismissHint} className="mt-3 w-full rounded-xl bg-amber-400 py-2 font-semibold text-stone-900">
               Skjønner
@@ -666,13 +808,17 @@ export default function BodPage() {
           <EditPanel
             wide={wide}
             selected={editSelected}
+            moving={moving}
+            canRotate={editSelected !== null && rootOf(boxes, editSelected).placement === 'floor'}
             onDone={exitEdit}
             onAdd={() => setDialog({ mode: 'add', target: { kind: 'any' } })}
             onMap={() => setMap(true)}
             onEdit={() => editSelected && setDialog({ mode: 'edit', boxId: editSelected.id })}
+            onMove={() => setMoving(true)}
+            onCancelMove={() => setMoving(false)}
             onRotate={() => editSelected && updateBox(editSelected, { rotation: (editSelected.rotation + 90) % 360 })}
-            onDeselect={() => setEditSelectedId(null)}
             onRemove={() => editSelected && removeBox(editSelected)}
+            onDeselect={() => setEditSelectedId(null)}
           />
         )}
 
@@ -695,6 +841,7 @@ export default function BodPage() {
           <BoxSheet
             box={selectedBox}
             items={selectedItems}
+            placementText={describePlacement(selectedBox, boxes)}
             query={query}
             wide={wide}
             height={sheetHeight}
@@ -703,7 +850,7 @@ export default function BodPage() {
             onRemoveItem={removeItem}
             onRenameItem={renameItem}
             onEdit={() => setDialog({ mode: 'edit', boxId: selectedBox.id })}
-            onMove={() => enterEdit(selectedBox.id)}
+            onMove={() => enterEdit(selectedBox.id, true)}
           />
         )}
       </main>
@@ -715,6 +862,7 @@ export default function BodPage() {
           highlightIds={highlightIds}
           editMode={editMode}
           selectedId={editSelectedId}
+          moving={moving}
           onClose={() => setMap(false)}
           onPickSlot={handleSlotClick}
           onPickBox={box => {
@@ -729,6 +877,7 @@ export default function BodPage() {
       )}
 
       {dialogElement}
+      {choiceElement}
     </div>
   )
 }

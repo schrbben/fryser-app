@@ -4,7 +4,23 @@ import { useEffect, useMemo, useRef, type ReactNode, type RefObject } from 'reac
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import CameraControlsImpl from 'camera-controls'
-import { COLORS, LEVELS_TOP_DOWN, SHELVES, SLOTS, boxInSlot, slotSpan, type ShelfId, type Slot, type StorageBox, type StorageItem } from '@/lib/storage'
+import {
+  COLORS,
+  SHELVES,
+  SLOTS,
+  TOP_GAP,
+  TOP_SHELVES,
+  boxInSlot,
+  dimensionsOf,
+  heightBelow,
+  levelsTopDown,
+  rootOf,
+  spanOf,
+  type ShelfId,
+  type Slot,
+  type StorageBox,
+  type StorageItem,
+} from '@/lib/storage'
 
 CameraControlsImpl.install({ THREE })
 const { ACTION } = CameraControlsImpl
@@ -51,47 +67,41 @@ function shelfNormal(shelf: ShelfId) {
 
 type Spec = { width: number; depth: number; height: number; lid: number }
 
-// SmartStore Classic 45 / Dry 45: ca. 59 × 39 × 31 cm, står med langsiden innover i hylla
-const BOX_SPEC: Spec = { width: 0.375, depth: 0.59, height: 0.31, lid: 0.025 }
+const BOX_SPEC = dimensionsOf({ kind: 'box', size: 'normal' })
+const LOW_SPEC = dimensionsOf({ kind: 'box', size: 'low' })
 
+// Løse ting på gulvet får en større matte enn i hylla
 function specFor(box: StorageBox): Spec {
-  switch (box.kind) {
-    case 'box':
-    case 'bin':
-      return BOX_SPEC
-    case 'suitcase':
-      return { width: 0.7, depth: 0.47, height: 0.13, lid: 0.13 }
-    case 'cardboard':
-      return { width: 0.35, depth: 0.5, height: 0.35, lid: 0.005 }
-    case 'loose':
-      return box.placement === 'shelf' ? { width: 0.36, depth: 0.55, height: 0.012, lid: 0 } : { width: 0.6, depth: 0.45, height: 0.012, lid: 0 }
-  }
+  if (box.kind === 'loose' && box.placement === 'floor') return { width: 0.6, depth: 0.45, height: 0.012, lid: 0 }
+  return dimensionsOf(box)
 }
 
 const visualHeight = (box: StorageBox, spec: Spec) => (box.kind === 'loose' ? 0.4 : spec.height + spec.lid)
 
-// Midt på plassen(e) den står på. En koffert står midt over to plasser.
+// Midt på plassen(e) den står på. En koffert eller lang boks står midt over to plasser.
 function shelfRest(slot: Pick<StorageBox, 'slot' | 'level'>, spec: Spec, span = 1) {
   return v3(((slot.slot ?? 1) - 2.5 + (span - 1) / 2) * SLOT_PITCH, SHELF.boards[(slot.level ?? 1) - 1], 0.01 + spec.depth / 2)
 }
 
-// Hvor langt ut av hylla boksen trekkes (relativt til der den står)
-function shelfOut(spec: Spec, rest: THREE.Vector3, gap: number) {
-  return SHELF.depth + spec.depth / 2 + gap - rest.z
-}
-
 // Der en åpnet boks havner, og hvilken vei forsiden peker (brukes av kameraet)
-function openAnchor(box: StorageBox) {
+function openAnchor(box: StorageBox, boxes: StorageBox[]) {
+  const root = rootOf(boxes, box)
   const spec = specFor(box)
   const height = visualHeight(box, spec)
-  if (box.placement === 'shelf' && box.shelf) {
-    const rest = shelfRest(box, spec, slotSpan(box.kind))
-    const local = rest.clone().add(v3(0, SHELF_PULL.lift + height / 2, shelfOut(spec, rest, SHELF_PULL.present)))
-    return { center: toWorld(box.shelf, local), front: shelfNormal(box.shelf), onShelf: true }
+  const below = heightBelow(boxes, box)
+  if (root.placement === 'shelf' && root.shelf) {
+    const rest = shelfRest(root, specFor(root), spanOf(root))
+    const local = v3(rest.x, rest.y + below + SHELF_PULL.lift + height / 2, SHELF.depth + spec.depth / 2 + SHELF_PULL.present)
+    return { center: toWorld(root.shelf, local), front: shelfNormal(root.shelf), onShelf: true }
   }
-  const rotation = deg(box.rotation)
+  // Ting som står oppå hverandre på gulvet er rotert i forhold til den under
+  let rotation = 0
+  for (let current: StorageBox | null = box, i = 0; current && i < 10; i++) {
+    rotation += deg(current.rotation)
+    current = current.id === root.id ? null : boxes.find(b => b.id === current!.stack_on) ?? null
+  }
   return {
-    center: v3(box.pos_x ?? ROOM.width / 2, FLOOR_LIFT + height / 2, box.pos_z ?? ROOM.length / 2),
+    center: v3(root.pos_x ?? ROOM.width / 2, below + FLOOR_LIFT + height / 2, root.pos_z ?? ROOM.length / 2),
     front: v3(Math.sin(rotation), 0, Math.cos(rotation)),
     onShelf: false,
   }
@@ -319,15 +329,16 @@ function Shelf({ id, onClick, children }: { id: ShelfId; onClick: () => void; ch
 // Ledig plass i hylla, vises bare i redigeringsmodus
 function GhostSlot({ slot, onClick }: { slot: Slot; onClick: (slot: Slot) => void }) {
   const plus = useTexture(plusLabel, [])
-  const { width: W, depth: D, height: H } = BOX_SPEC
+  const spec = slot.level === 4 ? LOW_SPEC : BOX_SPEC
+  const { width: W, depth: D, height: H } = spec
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     if (e.delta <= 8) onClick(slot)
   }
   return (
-    <group position={shelfRest(slot, BOX_SPEC)} onClick={handleClick}>
+    <group position={shelfRest(slot, spec)} onClick={handleClick}>
       <mesh geometry={GEO.cube} material={MAT.ghost} position={[0, H / 2, 0]} scale={[W, H, D]} />
-      <mesh geometry={GEO.plane} position={[0, H / 2, D / 2 + 0.004]} scale={[0.26, 0.26, 1]} raycast={noRaycast}>
+      <mesh geometry={GEO.plane} position={[0, H / 2, D / 2 + 0.004]} scale={[Math.min(0.26, H * 0.85), Math.min(0.26, H * 0.85), 1]} raycast={noRaycast}>
         <meshBasicMaterial map={plus} transparent toneMapped={false} />
       </mesh>
     </group>
@@ -403,6 +414,11 @@ function PlasticBoxBody({ box, items, spec, highlighted, lidRef }: BodyProps) {
   )
   const top = useTexture(() => (numbered ? lidLabel(box.number!, highlighted) : nameLabel(box.label || 'Boks', highlighted)), [box.number, box.label, highlighted])
 
+  // Klistremerket krympes på lave bokser
+  const [stickerW, stickerH] = numbered ? [0.27, 0.19] : [0.3, 0.15]
+  const fit = Math.min(1, (H * 0.8) / stickerH)
+  const stickerScale: [number, number, number] = [stickerW * fit, stickerH * fit, 1]
+
   let body: THREE.Material = MAT.clearBody
   let lid: THREE.Material = MAT.clearLid
   if (box.kind === 'bin') {
@@ -428,7 +444,7 @@ function PlasticBoxBody({ box, items, spec, highlighted, lidRef }: BodyProps) {
           ))
         )}
       <Contents items={items} width={W - 0.06} depth={D - 0.06} maxHeight={H * 0.7} y={0.006} />
-      <mesh geometry={GEO.plane} position={[0, H * 0.48, D / 2 + 0.004]} scale={numbered ? [0.27, 0.19, 1] : [0.3, 0.15, 1]} raycast={noRaycast}>
+      <mesh geometry={GEO.plane} position={[0, H * 0.48, D / 2 + 0.004]} scale={stickerScale} raycast={noRaycast}>
         <meshBasicMaterial map={front} toneMapped={false} />
       </mesh>
       {/* Lokket er hengslet i bakkant */}
@@ -507,31 +523,50 @@ function LooseBody({ box, items, spec }: BodyProps) {
   )
 }
 
-function Container({ box, items, open, highlighted, selected, onClick }: {
-  box: StorageBox
-  items: StorageItem[]
-  open: boolean
-  highlighted: boolean
-  selected: boolean
+type SceneContext = {
+  itemsByBox: Map<string, StorageItem[]>
+  childByBase: Map<string, StorageBox>
+  openId: string | null
+  highlightIds: Set<string>
+  selectedId: string | null
   onClick: (id: string) => void
+}
+
+const NO_ITEMS: StorageItem[] = []
+
+// shelfZ er avstanden fra bakveggen til midten av stabelen når den står i en hylle, ellers null
+function Container({ box, ctx, shelfZ, position, rotation }: {
+  box: StorageBox
+  ctx: SceneContext
+  shelfZ: number | null
+  position: THREE.Vector3
+  rotation: number
 }) {
   const invalidate = useThree(state => state.invalidate)
   const moveRef = useRef<THREE.Group>(null)
+  const stackRef = useRef<THREE.Group>(null)
   const lidRef = useRef<THREE.Group>(null)
   const flapLeftRef = useRef<THREE.Group>(null)
   const flapRightRef = useRef<THREE.Group>(null)
   const progress = useRef(0)
   const glow = useMemo(() => new THREE.MeshBasicMaterial({ color: '#fbbf24', transparent: true, opacity: 0.25, depthWrite: false }), [])
   useEffect(() => () => glow.dispose(), [glow])
+
+  const open = box.id === ctx.openId
+  const highlighted = ctx.highlightIds.has(box.id)
+  const selected = box.id === ctx.selectedId
   useEffect(() => invalidate(), [open, highlighted, selected, invalidate])
 
   const spec = specFor(box)
   const height = visualHeight(box, spec)
-  const onShelf = box.placement === 'shelf'
-  const rest = onShelf ? shelfRest(box, spec, slotSpan(box.kind)) : v3(box.pos_x ?? ROOM.width / 2, 0, box.pos_z ?? ROOM.length / 2)
-  const clearOut = onShelf ? shelfOut(spec, rest, SHELF_PULL.clear) : 0
-  const presentOut = onShelf ? shelfOut(spec, rest, SHELF_PULL.present) : 0
+  const top = spec.height + spec.lid + 0.002
+  const onShelf = shelfZ !== null
+  const clearOut = onShelf ? SHELF.depth + spec.depth / 2 + SHELF_PULL.clear - shelfZ : 0
+  const presentOut = onShelf ? SHELF.depth + spec.depth / 2 + SHELF_PULL.present - shelfZ : 0
   const lidAngle = box.kind === 'suitcase' ? 1.75 : 1.85
+  const child = ctx.childByBase.get(box.id) ?? null
+  // Når boksen åpnes, løftes det som står oppå over og settes ved siden av
+  const aside = child ? spec.width / 2 + specFor(child).width / 2 + 0.05 : 0
 
   useFrame((state, delta) => {
     const goal = open ? 1 : 0
@@ -554,6 +589,11 @@ function Container({ box, items, open, highlighted, selected, onClick }: {
     if (lidRef.current) lidRef.current.rotation.x = -lidAngle * lid
     if (flapLeftRef.current) flapLeftRef.current.rotation.z = 2.1 * lid
     if (flapRightRef.current) flapRightRef.current.rotation.z = -2.1 * lid
+    // Det som står oppå løftes av og settes ved siden av (på gulvet hvis stabelen står på gulvet)
+    if (stackRef.current) {
+      const t = smooth((p - (onShelf ? 0.4 : 0.05)) / 0.45)
+      stackRef.current.position.set(aside * t, top + 0.25 * Math.sin(Math.PI * t) - (onShelf ? 0 : top * t), 0)
+    }
     if (selected || highlighted) {
       glow.color.set(selected ? '#38bdf8' : '#fbbf24')
       glow.opacity = 0.2 + 0.13 * Math.sin(state.clock.elapsedTime * 4)
@@ -563,13 +603,13 @@ function Container({ box, items, open, highlighted, selected, onClick }: {
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
-    if (e.delta <= 8) onClick(box.id)
+    if (e.delta <= 8) ctx.onClick(box.id)
   }
 
-  const bodyProps: BodyProps = { box, items, spec, highlighted, lidRef, flapLeftRef, flapRightRef }
+  const bodyProps: BodyProps = { box, items: ctx.itemsByBox.get(box.id) ?? NO_ITEMS, spec, highlighted, lidRef, flapLeftRef, flapRightRef }
 
   return (
-    <group position={rest} rotation-y={onShelf ? 0 : deg(box.rotation)}>
+    <group position={position} rotation-y={rotation}>
       <group ref={moveRef} onClick={handleClick}>
         {/* Usynlig treffflate, så hele boksen er lett å trykke på */}
         <mesh visible={false} geometry={GEO.cube} position={[0, height / 2, 0]} scale={[spec.width, height, spec.depth]} />
@@ -580,10 +620,23 @@ function Container({ box, items, open, highlighted, selected, onClick }: {
         {(selected || highlighted) && (
           <mesh geometry={GEO.cube} material={glow} position={[0, height / 2, 0]} scale={[spec.width + 0.05, height + 0.05, spec.depth + 0.05]} raycast={noRaycast} />
         )}
+        <group ref={stackRef} position={[0, top, 0]}>
+          {child && (
+            <Container
+              box={child}
+              ctx={ctx}
+              shelfZ={shelfZ}
+              position={ORIGIN}
+              rotation={onShelf ? 0 : deg(child.rotation)}
+            />
+          )}
+        </group>
       </group>
     </group>
   )
 }
+
+const ORIGIN = new THREE.Vector3()
 
 // ---------- Kamera ----------
 
@@ -640,19 +693,20 @@ function presetView(preset: Preset, camera: THREE.PerspectiveCamera, insets: Ins
     // Skrått ovenfra, bak døra og litt fra venstre, så man ser forsiden av begge hyllene
     target = v3(ROOM.width / 2, 0.75, ROOM.length / 2)
     direction = v3(-0.55, 1.05, 0.9)
-    points = corners(v3(0, 0, 0), v3(ROOM.width, 1.85, ROOM.length))
+    points = corners(v3(0, 0, 0), v3(ROOM.width, SHELF.height + TOP_GAP, ROOM.length))
   } else {
     target = toWorld(preset, v3(0, 0.95, SHELF.depth / 2))
     direction = shelfNormal(preset).add(preset === 'A' ? v3(-0.25, 0.35, 0) : v3(0, 0.35, 0.1))
-    points = corners(v3(-SHELF.width / 2 - 0.05, 0, 0), v3(SHELF.width / 2 + 0.05, SHELF.height + 0.05, SHELF.depth + 0.05)).map(p => toWorld(preset, p))
+    const topHeight = TOP_SHELVES.includes(preset) ? SHELF.height + TOP_GAP : SHELF.height + 0.05
+    points = corners(v3(-SHELF.width / 2 - 0.05, 0, 0), v3(SHELF.width / 2 + 0.05, topHeight, SHELF.depth + 0.05)).map(p => toWorld(preset, p))
   }
   const distance = fitDistance(camera, target, direction, points, visible.w, visible.h)
   return { target, position: target.clone().addScaledVector(direction.normalize(), distance), minDistance: 1.2, maxDistance: 12 }
 }
 
-function focusView(box: StorageBox, camera: THREE.PerspectiveCamera, insets: Insets, size: { width: number; height: number }): ViewState {
+function focusView(box: StorageBox, boxes: StorageBox[], camera: THREE.PerspectiveCamera, insets: Insets, size: { width: number; height: number }): ViewState {
   const visible = visibleFraction(insets, size)
-  const { center, front, onShelf } = openAnchor(box)
+  const { center, front, onShelf } = openAnchor(box, boxes)
   const direction = onShelf ? front.clone().add(UP) : front.clone().multiplyScalar(0.8).add(v3(0, 1.3, 0))
   // Se litt inn fra midten av rommet, så den andre hylla ikke kommer i veien for kameraet
   const toCenter = v3(ROOM.width / 2 - center.x, 0, ROOM.length / 2 - center.z)
@@ -675,7 +729,13 @@ async function moveTo(c: CameraControlsImpl, view: ViewState, transition: boolea
   c.maxDistance = view.maxDistance
 }
 
-function CameraRig({ preset, presetNonce, focusBox, insets }: { preset: Preset; presetNonce: number; focusBox: StorageBox | null; insets: Insets }) {
+function CameraRig({ preset, presetNonce, focusBox, boxes, insets }: {
+  preset: Preset
+  presetNonce: number
+  focusBox: StorageBox | null
+  boxes: StorageBox[]
+  insets: Insets
+}) {
   const camera = useThree(state => state.camera) as THREE.PerspectiveCamera
   const gl = useThree(state => state.gl)
   const size = useThree(state => state.size)
@@ -684,8 +744,8 @@ function CameraRig({ preset, presetNonce, focusBox, insets }: { preset: Preset; 
   const rig = useRef({ seq: 0 })
   const saved = useRef<ViewState | null>(null)
   const initialNonce = useRef(presetNonce)
-  const latest = useRef({ preset, insets, size })
-  latest.current = { preset, insets, size }
+  const latest = useRef({ preset, insets, size, boxes })
+  latest.current = { preset, insets, size, boxes }
 
   // Vidvinkel på mobil (stående), litt smalere på bred skjerm
   useEffect(() => {
@@ -735,8 +795,12 @@ function CameraRig({ preset, presetNonce, focusBox, insets }: { preset: Preset; 
     invalidate()
   }, [presetNonce, camera, invalidate])
 
+  // Kameraet flytter seg på nytt hvis den åpne boksen (eller det den står på) flyttes
   const focusKey = focusBox
-    ? [focusBox.id, focusBox.placement, focusBox.shelf, focusBox.level, focusBox.slot, focusBox.pos_x, focusBox.pos_z, focusBox.rotation, focusBox.kind].join(':')
+    ? `${focusBox.id}:${openAnchor(focusBox, boxes)
+        .center.toArray()
+        .map(n => n.toFixed(2))
+        .join(',')}`
     : null
   useEffect(() => {
     const c = controlsRef.current
@@ -750,7 +814,7 @@ function CameraRig({ preset, presetNonce, focusBox, insets }: { preset: Preset; 
           maxDistance: c.maxDistance,
         }
       }
-      moveTo(c, focusView(focusBox, camera, latest.current.insets, latest.current.size), true, rig.current)
+      moveTo(c, focusView(focusBox, latest.current.boxes, camera, latest.current.insets, latest.current.size), true, rig.current)
     } else if (saved.current) {
       const view = saved.current
       saved.current = null
@@ -824,7 +888,8 @@ export default function StorageScene({
   onFloorClick: (point: { x: number; z: number }) => void
   onBackgroundClick: () => void
 }) {
-  const openBox = boxes.find(b => b.id === openId && b.placement !== 'elsewhere') ?? null
+  const openBox = boxes.find(b => b.id === openId) ?? null
+  const focusBox = openBox && rootOf(boxes, openBox).placement !== 'elsewhere' ? openBox : null
 
   const itemsByBox = useMemo(() => {
     const map = new Map<string, StorageItem[]>()
@@ -836,15 +901,27 @@ export default function StorageScene({
     return map
   }, [items])
 
-  const renderContainer = (box: StorageBox) => (
+  const childByBase = useMemo(() => {
+    const map = new Map<string, StorageBox>()
+    for (const box of boxes) if (box.placement === 'stacked' && box.stack_on) map.set(box.stack_on, box)
+    return map
+  }, [boxes])
+
+  const ctx: SceneContext = { itemsByBox, childByBase, openId, highlightIds, selectedId: editSelectedId, onClick: onBoxClick }
+
+  const shelfContainer = (box: StorageBox) => {
+    const rest = shelfRest(box, specFor(box), spanOf(box))
+    return <Container key={box.id} box={box} ctx={ctx} shelfZ={rest.z} position={rest} rotation={0} />
+  }
+
+  const floorContainer = (box: StorageBox) => (
     <Container
       key={box.id}
       box={box}
-      items={itemsByBox.get(box.id) ?? []}
-      open={box.id === openId}
-      highlighted={highlightIds.has(box.id)}
-      selected={box.id === editSelectedId}
-      onClick={onBoxClick}
+      ctx={ctx}
+      shelfZ={null}
+      position={v3(box.pos_x ?? ROOM.width / 2, 0, box.pos_z ?? ROOM.length / 2)}
+      rotation={deg(box.rotation)}
     />
   )
 
@@ -865,9 +942,9 @@ export default function StorageScene({
 
       {SHELVES.map(shelf => (
         <Shelf key={shelf} id={shelf} onClick={onBackgroundClick}>
-          {boxes.filter(box => box.placement === 'shelf' && box.shelf === shelf).map(renderContainer)}
+          {boxes.filter(box => box.placement === 'shelf' && box.shelf === shelf).map(shelfContainer)}
           {editMode &&
-            LEVELS_TOP_DOWN.flatMap(level =>
+            levelsTopDown(shelf).flatMap(level =>
               SLOTS.map(slotNumber => {
                 const slot: Slot = { shelf, level, slot: slotNumber }
                 return boxInSlot(boxes, slot) ? null : <GhostSlot key={`${level}:${slotNumber}`} slot={slot} onClick={onSlotClick} />
@@ -876,9 +953,9 @@ export default function StorageScene({
         </Shelf>
       ))}
 
-      {boxes.filter(box => box.placement === 'floor').map(renderContainer)}
+      {boxes.filter(box => box.placement === 'floor').map(floorContainer)}
 
-      <CameraRig preset={preset} presetNonce={presetNonce} focusBox={openBox} insets={insets} />
+      <CameraRig preset={preset} presetNonce={presetNonce} focusBox={focusBox} boxes={boxes} insets={insets} />
       <ViewOffset insets={insets} />
     </Canvas>
   )

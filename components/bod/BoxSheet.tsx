@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { COLORS, KINDS, boxLabelSuffix, boxName, describePlacement, normalize, type StorageBox, type StorageItem } from '@/lib/storage'
+import { COLORS, KINDS, SIZES, boxLabelSuffix, boxName, normalize, type StorageBox, type StorageItem } from '@/lib/storage'
 
-export default function BoxSheet({ box, items, query, wide, height, onClose, onAddItem, onRemoveItem, onRenameItem, onEdit, onMove }: {
+export default function BoxSheet({ box, items, placementText, query, wide, height, onClose, onAddItem, onRemoveItem, onRenameItem, onEdit, onMove }: {
   box: StorageBox
   items: StorageItem[]
+  placementText: string
   query: string
   wide: boolean
   height: number
@@ -21,7 +22,8 @@ export default function BoxSheet({ box, items, query, wide, height, onClose, onA
   const [editingName, setEditingName] = useState('')
   const q = normalize(query)
   const suffix = boxLabelSuffix(box)
-  const typeText = box.kind === 'box' ? `${COLORS[box.color]?.label.toLowerCase() ?? ''} boks` : KINDS[box.kind].name.toLowerCase()
+  const sizeText = (box.kind === 'box' || box.kind === 'bin') && box.size !== 'normal' ? `${SIZES[box.size].name.toLowerCase()} ` : ''
+  const typeText = box.kind === 'box' ? `${COLORS[box.color]?.label.toLowerCase() ?? ''} ${sizeText}boks` : `${sizeText}${KINDS[box.kind].name.toLowerCase()}`
 
   useEffect(() => {
     setNewItem('')
@@ -65,7 +67,7 @@ export default function BoxSheet({ box, items, query, wide, height, onClose, onA
               {suffix && <span className="font-semibold text-stone-500"> · {suffix}</span>}
             </h2>
             <p className="text-xs text-stone-500 mt-0.5">
-              {describePlacement(box)} · {typeText}
+              {placementText} · {typeText}
             </p>
           </div>
           <button
