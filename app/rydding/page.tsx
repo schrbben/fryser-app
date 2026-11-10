@@ -8,6 +8,7 @@ import ChoreEditor, { type ChoreDraft } from '@/components/rydding/ChoreEditor'
 import ChoreRow from '@/components/rydding/ChoreRow'
 import ChoreSheet from '@/components/rydding/ChoreSheet'
 import DoneDateSheet from '@/components/rydding/DoneDateSheet'
+import LastDoneSheet from '@/components/rydding/LastDoneSheet'
 import RoomsSheet from '@/components/rydding/RoomsSheet'
 import SettingsSheet from '@/components/rydding/SettingsSheet'
 import TimeSheet from '@/components/rydding/TimeSheet'
@@ -75,8 +76,9 @@ export default function RyddingPage() {
   const [showLater, setShowLater] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [datePick, setDatePick] = useState<DatePick | null>(null)
-  const [sheet, setSheet] = useState<'time' | 'settings' | 'rooms' | 'archive' | null>(null)
+  const [sheet, setSheet] = useState<'time' | 'settings' | 'rooms' | 'archive' | 'lastDone' | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
+  const [startHidden, setStartHidden] = useState(true) // oppstartsbanneret, skjult til vi vet mer
   const [toast, setToast] = useState<Toast | null>(null)
 
   const demoRef = useRef(false)
@@ -158,6 +160,22 @@ export default function RyddingPage() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [refresh])
+
+  // Oppstartsbanneret kan skjules per telefon
+  const START_KEY = 'rydding-oppstart-skjult'
+  useEffect(() => {
+    try {
+      setStartHidden(localStorage.getItem(START_KEY) === '1')
+    } catch {
+      setStartHidden(false)
+    }
+  }, [])
+  const hideStart = () => {
+    setStartHidden(true)
+    try {
+      localStorage.setItem(START_KEY, '1')
+    } catch {}
+  }
 
   // ---------- Lagring ----------
 
@@ -265,6 +283,44 @@ export default function RyddingPage() {
     showToast(`${chore.name} er utsatt til ${longDate(snoozeTo, today)}`, [
       { label: 'Angre', run: () => { setToast(null); patchChore(chore.id, { snoozed_until: before }) } },
     ])
+  }
+
+  // ---------- Oppstart: sist gjort ----------
+
+  /**
+   * Lagrer datoene fra oppstartslisten. Oppgavene som fortsatt aldri er gjort og ikke har forfalt ennå,
+   * fordeles på nytt rundt de nye datoene, så ukene blir jevne.
+   */
+  const saveLastDone = (dates: Map<string, DateString>) => {
+    setSheet(null)
+    if (dates.size === 0) return
+    const current = dataRef.current
+    const now = new Date().toISOString()
+    const rows: ChoreCompletion[] = [...dates].map(([chore_id, done_on]) => ({ id: localId(), chore_id, done_on, created_at: now }))
+    const completions = [...rows, ...current.completions]
+
+    const withHistory = new Set(completions.map(c => c.chore_id))
+    const reset = current.chores.map(c =>
+      !c.archived && !withHistory.has(c.id) && !c.fixed_months?.length && c.initial_due && c.initial_due > today ? { ...c, initial_due: null } : c
+    )
+    const dues = spreadInitialDues(reset, completions, current.settings, today)
+    const chores = reset.map(c => (dues.has(c.id) ? { ...c, initial_due: dues.get(c.id)! } : c))
+    const moved = chores.filter(c => c.initial_due !== current.chores.find(o => o.id === c.id)?.initial_due)
+
+    setData(d => ({ ...d, chores, completions }))
+    write(() =>
+      supabase
+        .from('chore_completions')
+        .upsert(rows.map(({ chore_id, done_on }) => ({ chore_id, done_on })), { onConflict: 'chore_id,done_on', ignoreDuplicates: true })
+    )
+    const byDate = new Map<DateString, string[]>()
+    for (const c of moved) if (c.initial_due) byDate.set(c.initial_due, [...(byDate.get(c.initial_due) ?? []), c.id])
+    byDate.forEach((ids, date) => write(() => supabase.from('chores').update({ initial_due: date }).in('id', ids)))
+
+    hideStart()
+    showToast(
+      `Lagret ${rows.length} ${rows.length === 1 ? 'dato' : 'datoer'}${moved.length ? `, og ${moved.length} andre oppgaver er fordelt på nytt` : ''}`
+    )
   }
 
   // ---------- Oppgaver og rom ----------
@@ -472,6 +528,9 @@ export default function RyddingPage() {
   const historyOf = (choreId: string) =>
     data.completions.filter(c => c.chore_id === choreId).map(c => c.done_on).sort((a, b) => b.localeCompare(a))
   const archived = data.chores.filter(c => c.archived)
+  const withHistory = new Set(data.completions.map(c => c.chore_id))
+  const neverDone = data.chores.filter(c => !c.archived && !withHistory.has(c.id))
+  const showStart = !startHidden && neverDone.length >= 10
   const choreCounts = new Map<string, number>()
   for (const c of data.chores) choreCounts.set(c.room_id, (choreCounts.get(c.room_id) ?? 0) + 1)
   const forcedCount = plan.planned.filter(s => s.forced).length
@@ -502,6 +561,23 @@ export default function RyddingPage() {
       <main className="mx-auto max-w-2xl px-4 py-4">
         {demo && (
           <p className="mb-3 rounded-xl bg-amber-100 px-3 py-2 text-sm text-amber-900">Demo: ingenting lagres.</p>
+        )}
+
+        {showStart && (
+          <section className="mb-4 rounded-2xl border border-violet-200 bg-white px-4 py-3 shadow-sm">
+            <p className="font-bold text-slate-800">👋 Når gjorde dere ting sist?</p>
+            <p className="mt-0.5 text-sm text-slate-600">
+              Legg inn det dere husker, så blir forslagene riktigere. Resten fordeles utover ukene.
+            </p>
+            <div className="mt-2.5 flex gap-2">
+              <button onClick={() => setSheet('lastDone')} className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white">
+                Legg inn sist gjort
+              </button>
+              <button onClick={hideStart} className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500">
+                Ikke nå
+              </button>
+            </div>
+          </section>
         )}
 
         {/* Neste ryddedag */}
@@ -728,6 +804,8 @@ export default function RyddingPage() {
           settings={data.settings}
           roomCount={data.rooms.length}
           archivedCount={archived.length}
+          neverDoneCount={neverDone.length}
+          onLastDone={() => setSheet('lastDone')}
           onSave={fields => {
             setSheet(null)
             saveSettings(fields)
@@ -735,6 +813,17 @@ export default function RyddingPage() {
           }}
           onRooms={() => setSheet('rooms')}
           onArchive={() => setSheet('archive')}
+          onCancel={() => setSheet(null)}
+        />
+      )}
+
+      {sheet === 'lastDone' && (
+        <LastDoneSheet
+          chores={neverDone}
+          rooms={data.rooms}
+          settings={data.settings}
+          today={today}
+          onSave={saveLastDone}
           onCancel={() => setSheet(null)}
         />
       )}

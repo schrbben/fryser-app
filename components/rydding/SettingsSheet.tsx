@@ -5,13 +5,15 @@ import { WEEKDAYS, WEEKDAY_ORDER, minutesText, type ChoreSettings } from '@/lib/
 import Sheet from './Sheet'
 import { capitalize } from './styles'
 
-export default function SettingsSheet({ settings, roomCount, archivedCount, onSave, onRooms, onArchive, onCancel }: {
+export default function SettingsSheet({ settings, roomCount, archivedCount, neverDoneCount, onSave, onRooms, onArchive, onLastDone, onCancel }: {
   settings: ChoreSettings
   roomCount: number
   archivedCount: number
+  neverDoneCount: number
   onSave: (fields: Pick<ChoreSettings, 'cleaning_weekday' | 'cap_minutes'>) => void
   onRooms: () => void
   onArchive: () => void
+  onLastDone: () => void
   onCancel: () => void
 }) {
   const [weekday, setWeekday] = useState(settings.cleaning_weekday)
@@ -63,6 +65,13 @@ export default function SettingsSheet({ settings, roomCount, archivedCount, onSa
       </div>
 
       <div className="mt-6 divide-y divide-slate-100 rounded-2xl border border-slate-200">
+        <button onClick={onLastDone} className="flex w-full items-center justify-between px-4 py-3 text-left">
+          <span>
+            <span className="block font-semibold text-slate-800">📋 Legg inn sist gjort</span>
+            <span className="block text-xs text-slate-500">For oppgaver som aldri er registrert</span>
+          </span>
+          <span className="text-sm text-slate-500">{neverDoneCount} ›</span>
+        </button>
         <button onClick={onRooms} className="flex w-full items-center justify-between px-4 py-3 text-left">
           <span className="font-semibold text-slate-800">🏠 Rom</span>
           <span className="text-sm text-slate-500">{roomCount} ›</span>
