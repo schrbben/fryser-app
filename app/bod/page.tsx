@@ -12,10 +12,13 @@ import EditPanel, { EDIT_PANEL } from '@/components/bod/EditPanel'
 import type { Insets, Preset } from '@/components/bod/StorageScene'
 import {
   KINDS,
+  ROOMS,
+  ROOM_ORDER,
   baseOf,
   boxLabelSuffix,
   boxName,
   childOf,
+  ceilingAt,
   clearance,
   createDemoData,
   describePlacement,
@@ -23,6 +26,7 @@ import {
   heightOf,
   nextFreeNumber,
   rootOf,
+  roomOf,
   searchBoxes,
   shelfStartFor,
   slotOf,
@@ -30,6 +34,7 @@ import {
   stackProblem,
   towerHeight,
   withDefaults,
+  type RoomId,
   type Slot,
   type StorageBox,
   type StorageItem,
@@ -42,20 +47,27 @@ const StorageScene = dynamic(() => import('@/components/bod/StorageScene'), {
   ),
 })
 
-const PRESETS: { id: Preset; icon: string; label: string }[] = [
-  { id: 'overview', icon: '🏠', label: 'Oversikt' },
-  { id: 'A', icon: '🅰️', label: 'Hylle A' },
-  { id: 'B', icon: '🅱️', label: 'Hylle B' },
-]
+const PRESETS: Record<RoomId, { id: Preset; icon: string; label: string }[]> = {
+  kjeller: [
+    { id: 'overview', icon: '🏠', label: 'Oversikt' },
+    { id: 'A', icon: '🅰️', label: 'Hylle A' },
+    { id: 'B', icon: '🅱️', label: 'Hylle B' },
+  ],
+  loft: [
+    { id: 'overview', icon: '🏠', label: 'Oversikt' },
+    { id: 'side', icon: '📐', label: 'Fra siden' },
+  ],
+}
+
+const ROOM_KEY = 'bod-room'
 
 const HINT_KEY = 'bod-hint-v2'
 const WIDE_PANEL = 400
 const NAV_SPACE = 84
-const DEFAULT_FLOOR = { x: 0.95, z: 2 }
 
 type Status = 'loading' | 'ready' | 'demo' | 'error'
 type Toast = { message: string; undo?: () => void }
-type PlacementFields = Pick<StorageBox, 'placement' | 'shelf' | 'level' | 'slot' | 'pos_x' | 'pos_z' | 'stack_on'>
+type PlacementFields = Pick<StorageBox, 'placement' | 'shelf' | 'level' | 'slot' | 'pos_x' | 'pos_z' | 'stack_on'> & Partial<Pick<StorageBox, 'room'>>
 type AddTarget = { kind: 'slot'; slot: Slot } | { kind: 'floor'; x: number; z: number } | { kind: 'any' }
 type Dialog = { mode: 'add'; target: AddTarget } | { mode: 'edit'; boxId: string }
 
@@ -63,9 +75,10 @@ const round = (n: number) => Math.round(n * 100) / 100
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n))
 
 const EMPTY_PLACEMENT = { shelf: null, level: null, slot: null, pos_x: null, pos_z: null, stack_on: null }
-const shelfFields = (slot: Slot): PlacementFields => ({ ...EMPTY_PLACEMENT, placement: 'shelf', shelf: slot.shelf, level: slot.level, slot: slot.slot })
-const floorFields = (x: number, z: number): PlacementFields => ({ ...EMPTY_PLACEMENT, placement: 'floor', pos_x: round(x), pos_z: round(z) })
-const stackedFields = (baseId: string): PlacementFields => ({ ...EMPTY_PLACEMENT, placement: 'stacked', stack_on: baseId })
+// Hyllene står i kjelleren
+const shelfFields = (slot: Slot): PlacementFields => ({ ...EMPTY_PLACEMENT, placement: 'shelf', shelf: slot.shelf, level: slot.level, slot: slot.slot, room: 'kjeller' })
+const floorFields = (x: number, z: number, room: RoomId): PlacementFields => ({ ...EMPTY_PLACEMENT, placement: 'floor', pos_x: round(x), pos_z: round(z), room })
+const stackedFields = (baseId: string, room: RoomId): PlacementFields => ({ ...EMPTY_PLACEMENT, placement: 'stacked', stack_on: baseId, room })
 const elsewhereFields: PlacementFields = { ...EMPTY_PLACEMENT, placement: 'elsewhere' }
 const placementOf = (box: StorageBox): PlacementFields => ({
   placement: box.placement,
@@ -75,22 +88,35 @@ const placementOf = (box: StorageBox): PlacementFields => ({
   pos_x: box.pos_x,
   pos_z: box.pos_z,
   stack_on: box.stack_on,
+  room: box.room,
 })
 
 // Første ledige plass på gulvet (minst ca. en halv meter fra det som står der fra før)
-function freeFloorSpot(boxes: StorageBox[]) {
-  const taken = boxes.filter(b => b.placement === 'floor' && b.pos_x != null && b.pos_z != null)
-  for (const z of [1.6, 2.0, 2.4, 2.7]) {
-    for (const x of [0.95, 0.6, 1.25, 0.3]) {
-      if (taken.every(b => Math.hypot(b.pos_x! - x, b.pos_z! - z) > 0.55)) return { x, z }
-    }
-  }
-  return DEFAULT_FLOOR
+function freeFloorSpot(boxes: StorageBox[], room: RoomId) {
+  const taken = boxes.filter(b => b.placement === 'floor' && b.room === room && b.pos_x != null && b.pos_z != null)
+  const candidates =
+    room === 'loft'
+      ? [2.8, 2.3, 1.8, 1.3].flatMap(z => [0.35, 0.8].map(x => ({ x, z })))
+      : [1.6, 2.0, 2.4, 2.7].flatMap(z => [0.95, 0.6, 1.25, 0.3].map(x => ({ x, z })))
+  return candidates.find(c => taken.every(b => Math.hypot(b.pos_x! - c.x, b.pos_z! - c.z) > 0.55)) ?? candidates[0]
 }
 
-const freeFloorFields = (boxes: StorageBox[]) => {
-  const spot = freeFloorSpot(boxes)
-  return floorFields(spot.x, spot.z)
+const freeFloorFields = (boxes: StorageBox[], room: RoomId) => {
+  const spot = freeFloorSpot(boxes, room)
+  return floorFields(spot.x, spot.z, room)
+}
+
+// Under skråtaket i loftet må høye ting stå lenger ut, der det er høyt nok
+function floorSpot(room: RoomId, x: number, z: number, height: number) {
+  const spec = ROOMS[room]
+  const px = clamp(x, 0.2, spec.width - 0.2)
+  let pz = clamp(z, 0.2, spec.length - 0.2)
+  let moved = false
+  while (pz < spec.length - 0.2 && ceilingAt(room, pz - 0.3) < height + 0.02) {
+    pz += 0.05
+    moved = true
+  }
+  return { x: px, z: round(pz), moved }
 }
 
 function isMissingTable(error: { code?: string }) {
@@ -164,6 +190,7 @@ export default function BodPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
+  const [room, setRoom] = useState<RoomId>('kjeller')
   const [preset, setPreset] = useState<Preset>('overview')
   const [presetNonce, setPresetNonce] = useState(0)
   const [map, setMap] = useState(false)
@@ -249,6 +276,13 @@ export default function BodPage() {
     observer.observe(element)
     return () => observer.disconnect()
   }, [status])
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(ROOM_KEY)
+      if (saved === 'kjeller' || saved === 'loft') setRoom(saved)
+    } catch {}
+  }, [])
 
   useEffect(() => {
     try {
@@ -341,7 +375,7 @@ export default function BodPage() {
   const restoreBox = async (box: StorageBox, boxItems: StorageItem[], child: StorageBox | null) => {
     setBoxes(prev => {
       const restored = prev.some(b => b.id === box.id) ? prev : [...prev, box]
-      return child ? restored.map(b => (b.id === child.id ? { ...b, ...stackedFields(box.id) } : b)) : restored
+      return child ? restored.map(b => (b.id === child.id ? { ...b, ...stackedFields(box.id, child.room) } : b)) : restored
     })
     setItems(prev => [...prev.filter(i => i.box_id !== box.id), ...boxItems])
     setToast(null)
@@ -349,7 +383,7 @@ export default function BodPage() {
     const { error } = await supabase.from('storage_boxes').insert(box)
     if (error) return reportError(error)
     if (boxItems.length > 0) persist(supabase.from('storage_items').insert(boxItems))
-    if (child) persist(supabase.from('storage_boxes').update(stackedFields(box.id)).eq('id', child.id))
+    if (child) persist(supabase.from('storage_boxes').update(stackedFields(box.id, child.room)).eq('id', child.id))
   }
 
   // Det som stod oppå havner der boksen stod
@@ -410,7 +444,26 @@ export default function BodPage() {
 
   // ---------- Handlinger ----------
 
+  // Bytter bod og viser oversikten der
+  const switchRoom = (next: RoomId) => {
+    if (next === room) return
+    setRoom(next)
+    setPreset('overview')
+    setPresetNonce(n => n + 1)
+    try {
+      localStorage.setItem(ROOM_KEY, next)
+    } catch {}
+  }
+
+  // Viser boden noe står i (det som står utenfor boden vises der man er)
+  const showRoomOf = (box: StorageBox) => {
+    const root = rootOf(boxes, box)
+    if (root.placement !== 'elsewhere') switchRoom(root.room)
+  }
+
   const openBox = (id: string) => {
+    const box = boxes.find(b => b.id === id)
+    if (box) showRoomOf(box)
     setSelectedId(id)
     setSearchOpen(false)
     searchRef.current?.blur()
@@ -470,6 +523,7 @@ export default function BodPage() {
         return
       }
       placeBox(editSelected, shelfFields(start), `${boxName(editSelected)} er flyttet`)
+      switchRoom('kjeller')
       finishMove()
       return
     }
@@ -483,7 +537,12 @@ export default function BodPage() {
       return
     }
     if (moving && editSelected) {
-      placeBox(editSelected, floorFields(clamp(x, 0.2, 1.8), clamp(z, 0.2, 2.8)), `${boxName(editSelected)} er flyttet`)
+      const spot = floorSpot(room, x, z, towerHeight(boxes, editSelected))
+      placeBox(
+        editSelected,
+        floorFields(spot.x, spot.z, room),
+        spot.moved ? `${boxName(editSelected)} er flyttet litt ut, det er for lavt under skråtaket der` : `${boxName(editSelected)} er flyttet`
+      )
       finishMove()
       return
     }
@@ -508,9 +567,9 @@ export default function BodPage() {
         : start
           ? shelfFields(start)
           : target.kind === 'floor'
-            ? floorFields(target.x, target.z)
-            : freeFloorFields(boxes)
-      const box = createBox({ ...draft, ...placement, rotation: 0 })
+            ? floorFields(target.x, target.z, room)
+            : freeFloorFields(boxes, room)
+      const box = createBox({ room, ...draft, ...placement, rotation: 0 })
       if (target.kind === 'any' && !elsewhere) {
         // Nytt på gulvet: velg det og la brukeren trykke der det skal stå
         setEditSelectedId(box.id)
@@ -530,7 +589,7 @@ export default function BodPage() {
           elsewhere && box.placement !== 'elsewhere'
             ? elsewhereFields
             : !elsewhere && box.placement === 'elsewhere'
-              ? freeFloorFields(boxes)
+              ? freeFloorFields(boxes, room)
               : start
                 ? shelfFields(start)
                 : {}
@@ -647,7 +706,7 @@ export default function BodPage() {
           finishMove()
         }}
         onStack={() => {
-          placeBox(editSelected, stackedFields(target.id), `${boxName(editSelected)} står nå oppå ${boxName(target)}`)
+          placeBox(editSelected, stackedFields(target.id, roomOf(boxes, target)), `${boxName(editSelected)} står nå oppå ${boxName(target)}`)
           finishMove()
         }}
         onCancel={() => setChoiceTargetId(null)}
@@ -662,9 +721,21 @@ export default function BodPage() {
           <div className="flex items-center justify-between gap-3">
             <h1 className="sr-only">Boden</h1>
             <AppSwitcher active="bod" dark />
-            <span className="text-xs text-stone-400">
-              {boxes.filter(b => b.kind === 'box').length} bokser · {items.length} ting
-            </span>
+            <div className="inline-flex rounded-full bg-white/10 p-1" role="tablist" aria-label="Velg bod">
+              {ROOM_ORDER.map(id => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={room === id}
+                  onClick={() => switchRoom(id)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-semibold transition-colors ${
+                    room === id ? 'bg-stone-100 text-stone-900' : 'text-stone-300 hover:text-white'
+                  }`}
+                >
+                  {ROOMS[id].short}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="relative mt-3">
@@ -736,6 +807,7 @@ export default function BodPage() {
 
       <main ref={areaRef} className="relative flex-1 overflow-hidden">
         <StorageScene
+          room={room}
           boxes={boxes}
           items={items}
           openId={selectedId}
@@ -774,7 +846,7 @@ export default function BodPage() {
         {!selectedBox && !editMode && (
           <nav className="absolute inset-x-0 bottom-0 z-10 flex justify-center px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pointer-events-none">
             <div className="pointer-events-auto flex gap-1 rounded-2xl bg-stone-900/85 p-1.5 shadow-xl backdrop-blur">
-              {PRESETS.map(p => (
+              {PRESETS[room].map(p => (
                 <button
                   key={p.id}
                   onClick={() => choosePreset(p.id)}
@@ -867,6 +939,7 @@ export default function BodPage() {
           onPickSlot={handleSlotClick}
           onPickBox={box => {
             if (editMode) {
+              if (!moving) showRoomOf(box)
               handleBoxClick(box.id)
             } else {
               setMap(false)

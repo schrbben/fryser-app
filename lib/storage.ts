@@ -1,6 +1,7 @@
 import seed from './bodSeed.json'
 
 export type ShelfId = 'A' | 'B'
+export type RoomId = 'kjeller' | 'loft'
 export type ContainerKind = 'box' | 'bin' | 'suitcase' | 'cardboard' | 'loose'
 export type BoxSize = 'normal' | 'low' | 'long'
 export type Placement = 'shelf' | 'floor' | 'elsewhere' | 'stacked'
@@ -22,6 +23,7 @@ export type StorageBox = {
   rotation: number // grader
   stack_on: string | null // boksen den står oppå
   location: string // hvor den står hvis den ikke er i boden
+  room: RoomId // hvilken bod den står i (hyllene står i kjelleren)
   created_at: string
 }
 
@@ -34,6 +36,44 @@ export type StorageItem = {
 
 export type Slot = { shelf: ShelfId; level: number; slot: number }
 export type Shape = Pick<StorageBox, 'kind' | 'size'>
+
+// ---------- Rommene ----------
+
+// Mål i meter. x går på tvers, z på langs, og døra står på kortveggen der z = length.
+export type RoomSpec = {
+  name: string
+  short: string
+  width: number
+  length: number
+  height: number
+  door: { center: number; width: number; height: number }
+  // Skråtak: flatt de første «flat» meterne innenfor døra, så ned til «low» meter ved innerste vegg
+  slope?: { flat: number; low: number }
+}
+
+export const ROOMS: Record<RoomId, RoomSpec> = {
+  kjeller: { name: 'Kjellerboden', short: 'Kjeller', width: 2, length: 3, height: 2.3, door: { center: 0.95, width: 0.82, height: 2 } },
+  loft: {
+    name: 'Loftsboden',
+    short: 'Loft',
+    width: 1.15,
+    length: 3.3,
+    height: 2.45,
+    door: { center: 0.575, width: 0.8, height: 2 },
+    slope: { flat: 1, low: 0.09 },
+  },
+}
+
+export const ROOM_ORDER: RoomId[] = ['kjeller', 'loft']
+
+// Takhøyden et stykke inn i rommet (z = 0 er innerste vegg)
+export function ceilingAt(room: RoomId, z: number): number {
+  const spec = ROOMS[room]
+  if (!spec.slope) return spec.height
+  const slopeLength = spec.length - spec.slope.flat
+  if (z >= slopeLength) return spec.height
+  return spec.slope.low + ((spec.height - spec.slope.low) * Math.max(0, z)) / slopeLength
+}
 
 export const SHELVES: ShelfId[] = ['A', 'B']
 export const SLOTS = [1, 2, 3, 4]
@@ -142,7 +182,7 @@ export function describeSlot({ shelf, level, slot }: Slot, span = 1): string {
 export function describePlacement(box: StorageBox, boxes: StorageBox[], depth = 0): string {
   const slot = slotOf(box)
   if (slot) return describeSlot(slot, spanOf(box))
-  if (box.placement === 'floor') return 'På gulvet i boden'
+  if (box.placement === 'floor') return `På gulvet i ${ROOMS[box.room].name.toLowerCase()}`
   if (box.placement === 'stacked') {
     const base = baseOf(boxes, box)
     return base && depth < 10 ? `Oppå ${boxName(base)} · ${describePlacement(base, boxes, depth + 1)}` : 'Oppå en annen boks'
@@ -197,6 +237,9 @@ export function rootOf(boxes: StorageBox[], box: StorageBox): StorageBox {
   }
   return current
 }
+
+// Boden stabelen står i
+export const roomOf = (boxes: StorageBox[], box: StorageBox): RoomId => rootOf(boxes, box).room
 
 // Høyden av det som står under boksen
 export function heightBelow(boxes: StorageBox[], box: StorageBox): number {
@@ -274,6 +317,7 @@ export function withDefaults(box: Partial<StorageBox> & Pick<StorageBox, 'id'>):
     ...box,
     size: box.size ?? 'normal',
     stack_on: box.stack_on ?? null,
+    room: box.room ?? 'kjeller',
   }
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { KINDS, LEVEL_NAMES, SHELF_NAMES, SHELVES, SLOTS, boxInSlot, boxName, childOf, levelsTopDown, spanOf, type Slot, type StorageBox } from '@/lib/storage'
+import { KINDS, LEVEL_NAMES, ROOMS, ROOM_ORDER, SHELF_NAMES, SHELVES, SLOTS, boxInSlot, boxName, childOf, levelsTopDown, spanOf, type Slot, type StorageBox } from '@/lib/storage'
 
 export default function ShelfMap({ boxes, itemCounts, highlightIds, editMode, selectedId, moving, onPickSlot, onPickBox, onClose }: {
   boxes: StorageBox[]
@@ -14,7 +14,6 @@ export default function ShelfMap({ boxes, itemCounts, highlightIds, editMode, se
   onClose: () => void
 }) {
   const selected = boxes.find(b => b.id === selectedId) ?? null
-  const floor = boxes.filter(b => b.placement === 'floor')
   const elsewhere = boxes.filter(b => b.placement === 'elsewhere')
 
   const colorClass = (box: StorageBox) =>
@@ -91,7 +90,7 @@ export default function ShelfMap({ boxes, itemCounts, highlightIds, editMode, se
 
         {SHELVES.map(shelf => (
           <section key={shelf} className="mt-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-400 mb-1.5">{SHELF_NAMES[shelf]}</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-400 mb-1.5">Kjellerboden · {SHELF_NAMES[shelf]}</h3>
             <div className="rounded-2xl bg-[#c9a77c]/25 border border-[#c9a77c]/60 p-1.5 space-y-1.5">
               {levelsTopDown(shelf).map(level => (
                 <div key={level}>
@@ -140,12 +139,21 @@ export default function ShelfMap({ boxes, itemCounts, highlightIds, editMode, se
           </section>
         ))}
 
-        {floor.length > 0 && (
-          <section className="mt-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-400 mb-1.5">På gulvet</h3>
-            <div className="space-y-1.5">{floor.map(box => listButton(box, `${itemCounts.get(box.id) ?? 0} ting`))}</div>
-          </section>
-        )}
+        {ROOM_ORDER.map(room => {
+          const floor = boxes.filter(b => b.placement === 'floor' && b.room === room)
+          return (
+            <section key={room} className="mt-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-400 mb-1.5">
+                {room === 'kjeller' ? 'Kjellerboden · gulvet' : 'Loftsboden'}
+              </h3>
+              {floor.length > 0 ? (
+                <div className="space-y-1.5">{floor.map(box => listButton(box, `${itemCounts.get(box.id) ?? 0} ting`))}</div>
+              ) : (
+                <p className="text-xs text-stone-400">Ingenting på gulvet i {ROOMS[room].name.toLowerCase()} ennå.</p>
+              )}
+            </section>
+          )
+        })}
 
         {elsewhere.length > 0 && (
           <section className="mt-4">

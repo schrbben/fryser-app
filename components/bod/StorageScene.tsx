@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import CameraControlsImpl from 'camera-controls'
 import {
   COLORS,
+  ROOMS,
   SHELVES,
   SLOTS,
   TOP_GAP,
@@ -16,6 +17,8 @@ import {
   levelsTopDown,
   rootOf,
   spanOf,
+  type RoomId,
+  type RoomSpec,
   type ShelfId,
   type Slot,
   type StorageBox,
@@ -25,15 +28,15 @@ import {
 CameraControlsImpl.install({ THREE })
 const { ACTION } = CameraControlsImpl
 
-export type Preset = 'overview' | 'A' | 'B'
+export type Preset = 'overview' | 'A' | 'B' | 'side'
 export type Insets = { bottom: number; right: number }
 
-// Alle mål i meter. x går langs kortveggen, z langs langveggen, døra står på z = ROOM.length.
-const ROOM = { width: 2, length: 3, height: 2.3 }
+// Alle mål i meter. x går langs kortveggen, z langs langveggen, døra står på z = length.
+// Hyllene står i kjellerboden.
+const ROOM = ROOMS.kjeller
 // Biltema oppbevaringshylle 1000 kg: 160 × 60 × 180 cm med fire hylleplater
 const SHELF = { width: 1.6, depth: 0.6, height: 1.8, post: 0.035, board: 0.018, boards: [0.12, 0.67, 1.22, 1.77] }
 const SLOT_PITCH = 0.385
-const DOOR = { center: 0.95, width: 0.82, height: 2 }
 const SHELF_PULL = { clear: 0.02, present: 0.1, lift: 0.05 }
 const FLOOR_LIFT = 0.03
 const UP = new THREE.Vector3(0, 1, 0)
@@ -101,7 +104,7 @@ function openAnchor(box: StorageBox, boxes: StorageBox[]) {
     current = current.id === root.id ? null : boxes.find(b => b.id === current!.stack_on) ?? null
   }
   return {
-    center: v3(root.pos_x ?? ROOM.width / 2, below + FLOOR_LIFT + height / 2, root.pos_z ?? ROOM.length / 2),
+    center: v3(root.pos_x ?? ROOMS[root.room].width / 2, below + FLOOR_LIFT + height / 2, root.pos_z ?? ROOMS[root.room].length / 2),
     front: v3(Math.sin(rotation), 0, Math.cos(rotation)),
     onShelf: false,
   }
@@ -133,6 +136,9 @@ const MAT = {
   wall: new THREE.MeshStandardMaterial({ color: '#ebe7e1', roughness: 0.95 }),
   sideWall: new THREE.MeshStandardMaterial({ color: '#dfdad3', roughness: 0.95 }),
   door: new THREE.MeshStandardMaterial({ color: '#8f7254', roughness: 0.7 }),
+  loftFloor: new THREE.MeshStandardMaterial({ color: '#7f705f', roughness: 0.95 }),
+  wood: new THREE.MeshStandardMaterial({ color: '#94532f', roughness: 0.8 }),
+  slope: new THREE.MeshStandardMaterial({ color: '#f1eee9', roughness: 0.9, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false }),
 }
 
 const CONTENT_MATS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#84cc16', '#64748b'].map(
@@ -257,6 +263,33 @@ function plusLabel() {
   })
 }
 
+// Netting-dør med treramme, som i loftsboden
+function meshDoorTexture() {
+  return canvasTexture(256, 512, ctx => {
+    ctx.strokeStyle = 'rgba(200, 200, 200, 0.9)'
+    ctx.lineWidth = 2
+    for (let x = 20; x < 256; x += 16) {
+      ctx.beginPath()
+      ctx.moveTo(x, 0)
+      ctx.lineTo(x, 512)
+      ctx.stroke()
+    }
+    for (let y = 20; y < 512; y += 16) {
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(256, y)
+      ctx.stroke()
+    }
+    ctx.strokeStyle = '#c99a63'
+    ctx.lineWidth = 18
+    ctx.strokeRect(9, 9, 238, 494)
+    ctx.beginPath()
+    ctx.moveTo(20, 490)
+    ctx.lineTo(236, 22)
+    ctx.stroke()
+  })
+}
+
 function useTexture(factory: () => THREE.Texture, deps: unknown[]) {
   const texture = useMemo(factory, deps)
   useEffect(() => () => texture.dispose(), [texture])
@@ -265,28 +298,75 @@ function useTexture(factory: () => THREE.Texture, deps: unknown[]) {
 
 // ---------- Rommet og hyllene ----------
 
-function Room({ onFloorClick }: { onFloorClick: (point: { x: number; z: number }) => void }) {
-  const { width: W, length: L, height: H } = ROOM
+// Omrisset av en sidevegg som punkter (z, y). Med skråtak går taket ned mot innerste vegg.
+function wallOutline(spec: RoomSpec): [number, number][] {
+  const { length: L, height: H, slope } = spec
+  if (!slope) return [[0, 0], [L, 0], [L, H], [0, H]]
+  return [[0, 0], [L, 0], [L, H], [L - slope.flat, H], [0, slope.low]]
+}
+
+function SideWall({ spec, side, material }: { spec: RoomSpec; side: 'left' | 'right'; material: THREE.Material }) {
+  const geometry = useMemo(() => {
+    // Venstre vegg vender mot +x og må speiles for at z skal peke riktig vei
+    const points = wallOutline(spec).map(([z, y]) => new THREE.Vector2(side === 'left' ? -z : z, y))
+    return new THREE.ShapeGeometry(new THREE.Shape(points))
+  }, [spec, side])
+  useEffect(() => () => geometry.dispose(), [geometry])
+  return (
+    <mesh
+      geometry={geometry}
+      material={material}
+      position={[side === 'left' ? 0 : spec.width, 0, 0]}
+      rotation-y={side === 'left' ? Math.PI / 2 : -Math.PI / 2}
+      raycast={noRaycast}
+    />
+  )
+}
+
+function Room({ roomId, onFloorClick }: { roomId: RoomId; onFloorClick: (point: { x: number; z: number }) => void }) {
+  const spec = ROOMS[roomId]
+  const { width: W, length: L, height: H, door, slope } = spec
+  const loft = roomId === 'loft'
+  const farHeight = slope ? slope.low : H
+  const meshDoor = useTexture(meshDoorTexture, [])
 
   const handleFloorClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     if (e.delta <= 6) onFloorClick({ x: e.point.x, z: e.point.z })
   }
 
-  // Veggene er enkeltsidige plan som vender inn i rommet. Sett utenfra blir de usynlige,
-  // så man kan se inn i boden som i et dukkehus.
+  // Veggene er enkeltsidige og vender inn i rommet. Sett utenfra blir de usynlige,
+  // så man kan se inn i boden som i et dukkehus. Skråtaket er halvgjennomsiktig.
+  const slopeLength = slope ? Math.hypot(L - slope.flat, H - slope.low) : 0
   return (
     <group>
-      <mesh geometry={GEO.plane} material={MAT.floor} rotation-x={-Math.PI / 2} position={[W / 2, 0, L / 2]} scale={[W, L, 1]} onClick={handleFloorClick} />
-      <mesh geometry={GEO.plane} material={MAT.wall} position={[W / 2, H / 2, 0]} scale={[W, H, 1]} raycast={noRaycast} />
+      <mesh geometry={GEO.plane} material={loft ? MAT.loftFloor : MAT.floor} rotation-x={-Math.PI / 2} position={[W / 2, 0, L / 2]} scale={[W, L, 1]} onClick={handleFloorClick} />
+      <mesh geometry={GEO.plane} material={loft ? MAT.wood : MAT.wall} position={[W / 2, farHeight / 2, 0]} scale={[W, farHeight, 1]} raycast={noRaycast} />
       <mesh geometry={GEO.plane} material={MAT.wall} rotation-y={Math.PI} position={[W / 2, H / 2, L]} scale={[W, H, 1]} raycast={noRaycast} />
-      <mesh geometry={GEO.plane} material={MAT.sideWall} rotation-y={Math.PI / 2} position={[0, H / 2, L / 2]} scale={[L, H, 1]} raycast={noRaycast} />
-      <mesh geometry={GEO.plane} material={MAT.sideWall} rotation-y={-Math.PI / 2} position={[W, H / 2, L / 2]} scale={[L, H, 1]} raycast={noRaycast} />
+      <SideWall spec={spec} side="left" material={loft ? MAT.wall : MAT.sideWall} />
+      <SideWall spec={spec} side="right" material={loft ? MAT.wood : MAT.sideWall} />
+      {slope && (
+        <mesh
+          geometry={GEO.plane}
+          material={MAT.slope}
+          position={[W / 2, (slope.low + H) / 2, (L - slope.flat) / 2]}
+          rotation-x={Math.atan2(L - slope.flat, H - slope.low)}
+          scale={[W, slopeLength, 1]}
+          raycast={noRaycast}
+        />
+      )}
 
       {/* Døra på kortveggen */}
-      <mesh geometry={GEO.plane} material={MAT.door} rotation-y={Math.PI} position={[DOOR.center, DOOR.height / 2, L - 0.004]} scale={[DOOR.width, DOOR.height, 1]} raycast={noRaycast} />
-      <mesh geometry={GEO.plane} material={MAT.frame} rotation-y={Math.PI} position={[DOOR.center - DOOR.width / 2 + 0.1, 1, L - 0.008]} scale={[0.12, 0.03, 1]} raycast={noRaycast} />
-
+      {loft ? (
+        <mesh geometry={GEO.plane} rotation-y={Math.PI} position={[door.center, door.height / 2, L - 0.004]} scale={[door.width, door.height, 1]} raycast={noRaycast}>
+          <meshStandardMaterial map={meshDoor} transparent alphaTest={0.1} roughness={0.8} />
+        </mesh>
+      ) : (
+        <>
+          <mesh geometry={GEO.plane} material={MAT.door} rotation-y={Math.PI} position={[door.center, door.height / 2, L - 0.004]} scale={[door.width, door.height, 1]} raycast={noRaycast} />
+          <mesh geometry={GEO.plane} material={MAT.frame} rotation-y={Math.PI} position={[door.center - door.width / 2 + 0.1, 1, L - 0.008]} scale={[0.12, 0.03, 1]} raycast={noRaycast} />
+        </>
+      )}
     </group>
   )
 }
@@ -684,16 +764,24 @@ function visibleFraction(insets: Insets, size: { width: number; height: number }
   }
 }
 
-function presetView(preset: Preset, camera: THREE.PerspectiveCamera, insets: Insets, size: { width: number; height: number }): ViewState {
+function presetView(preset: Preset, roomId: RoomId, camera: THREE.PerspectiveCamera, insets: Insets, size: { width: number; height: number }): ViewState {
   const visible = visibleFraction(insets, size)
+  const spec = ROOMS[roomId]
   let target: THREE.Vector3
   let direction: THREE.Vector3
   let points: THREE.Vector3[]
-  if (preset === 'overview') {
-    // Skrått ovenfra, bak døra og litt fra venstre, så man ser forsiden av begge hyllene
-    target = v3(ROOM.width / 2, 0.75, ROOM.length / 2)
-    direction = v3(-0.55, 1.05, 0.9)
-    points = corners(v3(0, 0, 0), v3(ROOM.width, SHELF.height + TOP_GAP, ROOM.length))
+  if (roomId === 'loft' && preset === 'side') {
+    // Fra siden, gjennom veggen, så man ser hvordan taket skråner
+    target = v3(spec.width / 2, spec.height / 2, spec.length / 2)
+    direction = v3(-1, 0.25, 0.05)
+    points = corners(v3(0, 0, 0), v3(spec.width, spec.height, spec.length))
+  } else if (roomId === 'loft' || preset === 'overview' || preset === 'side') {
+    // Skrått ovenfra og bak døra. I kjelleren litt fra venstre, så man ser forsiden av begge hyllene.
+    const kjeller = roomId === 'kjeller'
+    target = v3(spec.width / 2, kjeller ? 0.75 : 0.5, spec.length / 2)
+    // Loftet er smalt og langt, så det ses best skrått fra siden, med døra nærmest
+    direction = kjeller ? v3(-0.55, 1.05, 0.9) : v3(-1, 1.15, 0.7)
+    points = corners(v3(0, 0, 0), v3(spec.width, kjeller ? SHELF.height + TOP_GAP : 1.4, spec.length))
   } else {
     target = toWorld(preset, v3(0, 0.95, SHELF.depth / 2))
     direction = shelfNormal(preset).add(preset === 'A' ? v3(-0.25, 0.35, 0) : v3(0, 0.35, 0.1))
@@ -709,7 +797,8 @@ function focusView(box: StorageBox, boxes: StorageBox[], camera: THREE.Perspecti
   const { center, front, onShelf } = openAnchor(box, boxes)
   const direction = onShelf ? front.clone().add(UP) : front.clone().multiplyScalar(0.8).add(v3(0, 1.3, 0))
   // Se litt inn fra midten av rommet, så den andre hylla ikke kommer i veien for kameraet
-  const toCenter = v3(ROOM.width / 2 - center.x, 0, ROOM.length / 2 - center.z)
+  const room = ROOMS[rootOf(boxes, box).room]
+  const toCenter = v3(room.width / 2 - center.x, 0, room.length / 2 - center.z)
   const sideways = toCenter.sub(front.clone().multiplyScalar(toCenter.dot(front)))
   if (sideways.lengthSq() > 0.0025) direction.add(sideways.normalize().multiplyScalar(0.5))
   const half = v3(0.4, 0.32, 0.4)
@@ -729,8 +818,9 @@ async function moveTo(c: CameraControlsImpl, view: ViewState, transition: boolea
   c.maxDistance = view.maxDistance
 }
 
-function CameraRig({ preset, presetNonce, focusBox, boxes, insets }: {
+function CameraRig({ preset, roomId, presetNonce, focusBox, boxes, insets }: {
   preset: Preset
+  roomId: RoomId
   presetNonce: number
   focusBox: StorageBox | null
   boxes: StorageBox[]
@@ -744,8 +834,8 @@ function CameraRig({ preset, presetNonce, focusBox, boxes, insets }: {
   const rig = useRef({ seq: 0 })
   const saved = useRef<ViewState | null>(null)
   const initialNonce = useRef(presetNonce)
-  const latest = useRef({ preset, insets, size, boxes })
-  latest.current = { preset, insets, size, boxes }
+  const latest = useRef({ preset, roomId, insets, size, boxes })
+  latest.current = { preset, roomId, insets, size, boxes }
 
   // Vidvinkel på mobil (stående), litt smalere på bred skjerm
   useEffect(() => {
@@ -767,7 +857,6 @@ function CameraRig({ preset, presetNonce, focusBox, boxes, insets }: {
     controls.touches.one = ACTION.TOUCH_ROTATE
     controls.touches.two = ACTION.TOUCH_DOLLY_TRUCK
     controls.touches.three = ACTION.TOUCH_TRUCK
-    controls.setBoundary(new THREE.Box3(v3(-0.5, 0, -0.5), v3(ROOM.width + 0.5, ROOM.height, ROOM.length + 0.5)))
     const wake = () => invalidate()
     controls.addEventListener('update', wake)
     controls.addEventListener('control', wake)
@@ -776,7 +865,7 @@ function CameraRig({ preset, presetNonce, focusBox, boxes, insets }: {
     const { size: currentSize } = latest.current
     camera.fov = currentSize.width < currentSize.height ? 70 : 50
     camera.updateProjectionMatrix()
-    moveTo(controls, presetView(latest.current.preset, camera, latest.current.insets, currentSize), false, rig.current)
+    moveTo(controls, presetView(latest.current.preset, latest.current.roomId, camera, latest.current.insets, currentSize), false, rig.current)
     invalidate()
     return () => {
       controls.removeEventListener('update', wake)
@@ -787,11 +876,17 @@ function CameraRig({ preset, presetNonce, focusBox, boxes, insets }: {
     }
   }, [camera, gl, invalidate])
 
+  // Kameraet kan ikke se mot et punkt langt utenfor boden
+  useEffect(() => {
+    const spec = ROOMS[roomId]
+    controlsRef.current?.setBoundary(new THREE.Box3(v3(-0.5, 0, -0.5), v3(spec.width + 0.5, spec.height, spec.length + 0.5)))
+  }, [roomId, camera, gl])
+
   useEffect(() => {
     const c = controlsRef.current
     if (!c || presetNonce === initialNonce.current) return
     saved.current = null
-    moveTo(c, presetView(latest.current.preset, camera, latest.current.insets, latest.current.size), true, rig.current)
+    moveTo(c, presetView(latest.current.preset, latest.current.roomId, camera, latest.current.insets, latest.current.size), true, rig.current)
     invalidate()
   }, [presetNonce, camera, invalidate])
 
@@ -860,6 +955,7 @@ function ViewOffset({ insets }: { insets: Insets }) {
 // ---------- Scenen ----------
 
 export default function StorageScene({
+  room,
   boxes,
   items,
   openId,
@@ -874,6 +970,7 @@ export default function StorageScene({
   onFloorClick,
   onBackgroundClick,
 }: {
+  room: RoomId
   boxes: StorageBox[]
   items: StorageItem[]
   openId: string | null
@@ -889,7 +986,9 @@ export default function StorageScene({
   onBackgroundClick: () => void
 }) {
   const openBox = boxes.find(b => b.id === openId) ?? null
-  const focusBox = openBox && rootOf(boxes, openBox).placement !== 'elsewhere' ? openBox : null
+  const openRoot = openBox ? rootOf(boxes, openBox) : null
+  const focusBox = openBox && openRoot && openRoot.placement !== 'elsewhere' && openRoot.room === room ? openBox : null
+  const spec = ROOMS[room]
 
   const itemsByBox = useMemo(() => {
     const map = new Map<string, StorageItem[]>()
@@ -920,7 +1019,7 @@ export default function StorageScene({
       box={box}
       ctx={ctx}
       shelfZ={null}
-      position={v3(box.pos_x ?? ROOM.width / 2, 0, box.pos_z ?? ROOM.length / 2)}
+      position={v3(box.pos_x ?? spec.width / 2, 0, box.pos_z ?? spec.length / 2)}
       rotation={deg(box.rotation)}
     />
   )
@@ -935,12 +1034,17 @@ export default function StorageScene({
       <color attach="background" args={['#1c1917']} />
       <hemisphereLight args={['#fff8ee', '#5c544c', 1.3]} />
       <ambientLight intensity={0.35} />
-      <pointLight position={[ROOM.width / 2, ROOM.height - 0.2, ROOM.length / 2]} intensity={3} decay={1.2} color="#fff1dc" />
+      <pointLight
+        position={room === 'loft' ? [spec.width / 2, spec.height - 0.25, spec.length - 0.5] : [spec.width / 2, spec.height - 0.2, spec.length / 2]}
+        intensity={3}
+        decay={1.2}
+        color="#fff1dc"
+      />
       <directionalLight position={[3, 6, 5]} intensity={0.6} />
 
-      <Room onFloorClick={onFloorClick} />
+      <Room roomId={room} onFloorClick={onFloorClick} />
 
-      {SHELVES.map(shelf => (
+      {room === 'kjeller' && SHELVES.map(shelf => (
         <Shelf key={shelf} id={shelf} onClick={onBackgroundClick}>
           {boxes.filter(box => box.placement === 'shelf' && box.shelf === shelf).map(shelfContainer)}
           {editMode &&
@@ -953,9 +1057,9 @@ export default function StorageScene({
         </Shelf>
       ))}
 
-      {boxes.filter(box => box.placement === 'floor').map(floorContainer)}
+      {boxes.filter(box => box.placement === 'floor' && box.room === room).map(floorContainer)}
 
-      <CameraRig preset={preset} presetNonce={presetNonce} focusBox={focusBox} boxes={boxes} insets={insets} />
+      <CameraRig preset={preset} roomId={room} presetNonce={presetNonce} focusBox={focusBox} boxes={boxes} insets={insets} />
       <ViewOffset insets={insets} />
     </Canvas>
   )

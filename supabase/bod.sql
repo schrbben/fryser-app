@@ -18,6 +18,7 @@ create table if not exists storage_boxes (
   rotation real not null default 0,                    -- grader
   stack_on uuid references storage_boxes(id) on delete set null, -- boksen den står oppå
   location text not null default '',                   -- hvor den står hvis den ikke er i boden
+  room text not null default 'kjeller' check (room in ('kjeller', 'loft')), -- hvilken bod
   created_at timestamptz not null default now()
 );
 
