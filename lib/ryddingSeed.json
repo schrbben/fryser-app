@@ -1,5 +1,5 @@
 {
-  "settings": {"cleaning_weekday": 0, "cap_minutes": 105, "notify_time": "09:00"},
+  "settings": {"cleaning_weekday": 4, "cap_minutes": 105, "notify_time": "09:00"},
   "rooms": [
     {
       "name": "Kjøkken",

@@ -42,9 +42,11 @@ create table if not exists chore_completions (
 
 create table if not exists chore_settings (
   id int primary key default 1 check (id = 1),                       -- bare én rad
-  cleaning_weekday int not null default 0 check (cleaning_weekday between 0 and 6), -- 0 = søndag
+  cleaning_weekday int not null default 4 check (cleaning_weekday between 0 and 6), -- 0 = søndag, 4 = torsdag
   cap_minutes int not null default 105 check (cap_minutes > 0),
-  notify_time time not null default '09:00'
+  notify_time time not null default '09:00',
+  cap_today int check (cap_today > 0),                               -- minutter i dag, null = vanlig tid
+  cap_today_on date                                                  -- dagen cap_today gjelder for
 );
 
 insert into chore_settings (id) values (1) on conflict (id) do nothing;
