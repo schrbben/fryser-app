@@ -1,17 +1,21 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 import AppSwitcher from '@/components/AppSwitcher'
+import ArchiveSheet from '@/components/rydding/ArchiveSheet'
+import ChoreEditor, { type ChoreDraft } from '@/components/rydding/ChoreEditor'
 import ChoreRow from '@/components/rydding/ChoreRow'
 import ChoreSheet from '@/components/rydding/ChoreSheet'
 import DoneDateSheet from '@/components/rydding/DoneDateSheet'
+import RoomsSheet from '@/components/rydding/RoomsSheet'
 import SettingsSheet from '@/components/rydding/SettingsSheet'
 import TimeSheet from '@/components/rydding/TimeSheet'
 import { STATUS_STYLE, capitalize, mins } from '@/components/rydding/styles'
 import { supabase } from '@/lib/supabase'
 import {
-  DEFAULT_SETTINGS, STATUS_ORDER, WEEKDAYS, addDays, buildPlan, capTodayActive, createDemoData, intervalText, longDate,
-  relativeDay, shortDate, snoozeTarget, spreadInitialDues, todayString,
+  DEFAULT_SETTINGS, STATUS_ORDER, WEEKDAYS, addDays, buildPlan, capTodayActive, cleaningDayInMonths, createDemoData,
+  intervalText, lastDoneMap, longDate, relativeDay, shortDate, snoozeTarget, spreadInitialDues, todayString,
   type Chore, type ChoreCompletion, type ChoreRoom, type ChoreSettings, type ChoreState, type DateString,
 } from '@/lib/rydding'
 
@@ -20,6 +24,20 @@ type LoadStatus = 'loading' | 'ready' | 'error'
 type Toast = { message: string; actions?: { label: string; run: () => void }[] }
 /** Datovelgeren: `from` er datoen som endres, null = legg til en ny. */
 type DatePick = { choreId: string; from: DateString | null }
+type EditorState = { mode: 'new'; roomId: string | null } | { mode: 'edit'; choreId: string }
+
+const draftOf = (chore: Chore): ChoreDraft => ({
+  name: chore.name,
+  room_id: chore.room_id,
+  interval_weeks: chore.interval_weeks,
+  priority: chore.priority,
+  est_minutes: chore.est_minutes,
+  fixed_months: chore.fixed_months,
+  purchase_item: chore.purchase_item,
+  notes: chore.notes,
+})
+
+const sameMonths = (a: number[] | null, b: number[] | null) => (a ?? []).join(',') === (b ?? []).join(',')
 
 const EMPTY: Data = { rooms: [], chores: [], completions: [], settings: DEFAULT_SETTINGS }
 
@@ -57,7 +75,8 @@ export default function RyddingPage() {
   const [showLater, setShowLater] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [datePick, setDatePick] = useState<DatePick | null>(null)
-  const [sheet, setSheet] = useState<'time' | 'settings' | null>(null)
+  const [sheet, setSheet] = useState<'time' | 'settings' | 'rooms' | 'archive' | null>(null)
+  const [editor, setEditor] = useState<EditorState | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
 
   const demoRef = useRef(false)
@@ -248,6 +267,101 @@ export default function RyddingPage() {
     ])
   }
 
+  // ---------- Oppgaver og rom ----------
+
+  const createChore = (draft: ChoreDraft, lastDone: DateString | null) => {
+    const current = dataRef.current
+    const chore: Chore = {
+      id: uuidv4(),
+      ...draft,
+      purchase_done_for: null,
+      snoozed_until: null,
+      initial_due: null,
+      archived: false,
+      created_at: new Date().toISOString(),
+    }
+    // Uten «sist gjort» får den frist i uka med minst å gjøre
+    if (!lastDone) {
+      chore.initial_due = spreadInitialDues([...current.chores, chore], current.completions, current.settings, today).get(chore.id) ?? null
+    }
+    setData(d => ({ ...d, chores: [...d.chores, chore] }))
+    write(() => supabase.from('chores').insert(chore))
+    if (lastDone) addCompletion(chore.id, lastDone)
+    setEditor(null)
+    showToast(`«${chore.name}» er lagt til`, [
+      { label: 'Vis', run: () => { setToast(null); setOpenId(chore.id) } },
+    ])
+  }
+
+  const saveChore = (chore: Chore, draft: ChoreDraft) => {
+    const fields: Partial<Chore> = { ...draft }
+    // Aldri gjort og nye faste måneder: fristen flyttes til neste valgte måned
+    const neverDone = !dataRef.current.completions.some(c => c.chore_id === chore.id)
+    if (neverDone && draft.fixed_months?.length && !sameMonths(chore.fixed_months, draft.fixed_months)) {
+      fields.initial_due = cleaningDayInMonths(plan.nextCleaningDay, draft.fixed_months, data.settings.cleaning_weekday)
+    }
+    if (draft.purchase_item !== chore.purchase_item) fields.purchase_done_for = null
+    patchChore(chore.id, fields)
+    setEditor(null)
+    showToast('Endringene er lagret')
+  }
+
+  const archiveChore = (chore: Chore) => {
+    patchChore(chore.id, { archived: true })
+    setEditor(null)
+    setOpenId(null)
+    showToast(`«${chore.name}» er arkivert`, [
+      { label: 'Angre', run: () => { setToast(null); patchChore(chore.id, { archived: false }) } },
+    ])
+  }
+
+  const restoreChore = (chore: Chore) => {
+    patchChore(chore.id, { archived: false })
+    showToast(`«${chore.name}» er hentet tilbake`)
+  }
+
+  const addRoom = (name: string, room?: ChoreRoom) => {
+    const next = room ?? {
+      id: uuidv4(),
+      name,
+      sort_order: Math.max(0, ...dataRef.current.rooms.map(r => r.sort_order)) + 1,
+      created_at: new Date().toISOString(),
+    }
+    setData(d => ({ ...d, rooms: [...d.rooms, next].sort((a, b) => a.sort_order - b.sort_order) }))
+    write(() => supabase.from('chore_rooms').insert(next))
+  }
+
+  const renameRoom = (room: ChoreRoom, name: string) => {
+    setData(d => ({ ...d, rooms: d.rooms.map(r => (r.id === room.id ? { ...r, name } : r)) }))
+    write(() => supabase.from('chore_rooms').update({ name }).eq('id', room.id))
+  }
+
+  const moveRoom = (room: ChoreRoom, direction: -1 | 1) => {
+    const before = dataRef.current.rooms
+    const rooms = [...before].sort((a, b) => a.sort_order - b.sort_order)
+    const i = rooms.findIndex(r => r.id === room.id)
+    const j = i + direction
+    if (i < 0 || j < 0 || j >= rooms.length) return
+    ;[rooms[i], rooms[j]] = [rooms[j], rooms[i]]
+    const renumbered = rooms.map((r, k) => ({ ...r, sort_order: k + 1 }))
+    setData(d => ({ ...d, rooms: renumbered }))
+    for (const r of renumbered) {
+      if (before.find(b => b.id === r.id)?.sort_order !== r.sort_order) {
+        write(() => supabase.from('chore_rooms').update({ sort_order: r.sort_order }).eq('id', r.id))
+      }
+    }
+  }
+
+  const deleteRoom = (room: ChoreRoom) => {
+    if (dataRef.current.chores.some(c => c.room_id === room.id)) return
+    setData(d => ({ ...d, rooms: d.rooms.filter(r => r.id !== room.id) }))
+    write(() => supabase.from('chore_rooms').delete().eq('id', room.id))
+    if (roomFilter === room.id) setRoomFilter('all')
+    showToast(`Rommet «${room.name}» er slettet`, [
+      { label: 'Angre', run: () => { setToast(null); addRoom(room.name, room) } },
+    ])
+  }
+
   const saveDatePick = (date: DateString) => {
     if (!datePick) return
     const chore = choreById(datePick.choreId)
@@ -357,6 +471,11 @@ export default function RyddingPage() {
   const pickChore = datePick ? data.chores.find(c => c.id === datePick.choreId) : undefined
   const historyOf = (choreId: string) =>
     data.completions.filter(c => c.chore_id === choreId).map(c => c.done_on).sort((a, b) => b.localeCompare(a))
+  const archived = data.chores.filter(c => c.archived)
+  const choreCounts = new Map<string, number>()
+  for (const c of data.chores) choreCounts.set(c.room_id, (choreCounts.get(c.room_id) ?? 0) + 1)
+  const forcedCount = plan.planned.filter(s => s.forced).length
+  const editing = editor?.mode === 'edit' ? data.chores.find(c => c.id === editor.choreId) : undefined
 
   return (
     <div className="min-h-screen bg-slate-50 pb-28 text-slate-900">
@@ -364,9 +483,19 @@ export default function RyddingPage() {
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
           <h1 className="sr-only">Rydding</h1>
           <AppSwitcher active="rydding" />
-          <button onClick={() => setSheet('settings')} aria-label="Innstillinger" title="Innstillinger" className="h-10 w-10 rounded-full text-xl hover:bg-slate-100">
-            ⚙️
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setEditor({ mode: 'new', roomId: roomFilter === 'all' ? null : roomFilter })}
+              aria-label="Ny oppgave"
+              title="Ny oppgave"
+              className="h-10 rounded-full bg-violet-50 px-3 text-sm font-bold text-violet-700 hover:bg-violet-100"
+            >
+              + Ny
+            </button>
+            <button onClick={() => setSheet('settings')} aria-label="Innstillinger" title="Innstillinger" className="h-10 w-10 rounded-full text-xl hover:bg-slate-100">
+              ⚙️
+            </button>
+          </div>
         </div>
       </header>
 
@@ -415,9 +544,13 @@ export default function RyddingPage() {
               </button>
             </p>
           )}
-          {overCap && plan.planned.length === 1 && plan.usedMinutes === 0 && (
+          {forcedCount > 0 ? (
+            <p className="mt-2 text-xs text-violet-100">
+              Går over tiden fordi {forcedCount === 1 ? 'en rød oppgave' : `${forcedCount} røde oppgaver`} alltid tas med.
+            </p>
+          ) : overCap && plan.planned.length === 1 && plan.usedMinutes === 0 ? (
             <p className="mt-2 text-xs text-violet-100">Den øverste oppgaven tar lengre tid enn dere har, men er tatt med fordi den haster mest.</p>
-          )}
+          ) : null}
         </section>
 
         {/* Filter */}
@@ -547,6 +680,7 @@ export default function RyddingPage() {
           today={today}
           snoozeTo={snoozeTo}
           onClose={() => setOpenId(null)}
+          onEdit={() => setEditor({ mode: 'edit', choreId: openState.chore.id })}
           onDone={() => markDone(openState.chore)}
           onDoneOtherDay={() => setDatePick({ choreId: openState.chore.id, from: null })}
           onSnooze={() => snooze(openState.chore)}
@@ -592,12 +726,74 @@ export default function RyddingPage() {
       {sheet === 'settings' && (
         <SettingsSheet
           settings={data.settings}
+          roomCount={data.rooms.length}
+          archivedCount={archived.length}
           onSave={fields => {
             setSheet(null)
             saveSettings(fields)
             showToast('Innstillingene er lagret')
           }}
+          onRooms={() => setSheet('rooms')}
+          onArchive={() => setSheet('archive')}
           onCancel={() => setSheet(null)}
+        />
+      )}
+
+      {sheet === 'rooms' && (
+        <RoomsSheet
+          rooms={data.rooms}
+          counts={choreCounts}
+          onAdd={name => addRoom(name)}
+          onRename={renameRoom}
+          onMove={moveRoom}
+          onDelete={deleteRoom}
+          onClose={() => setSheet(null)}
+        />
+      )}
+
+      {sheet === 'archive' && (
+        <ArchiveSheet
+          chores={archived}
+          roomName={id => roomName.get(id) ?? ''}
+          lastDone={lastDoneMap(data.completions)}
+          today={today}
+          onRestore={restoreChore}
+          onClose={() => setSheet(null)}
+        />
+      )}
+
+      {editor?.mode === 'new' && (
+        <ChoreEditor
+          key="new"
+          initial={{
+            name: '',
+            room_id: editor.roomId ?? '',
+            interval_weeks: 4,
+            priority: 'medium',
+            est_minutes: 15,
+            fixed_months: null,
+            purchase_item: null,
+            notes: null,
+          }}
+          rooms={data.rooms}
+          isNew
+          today={today}
+          onSave={createChore}
+          onCancel={() => setEditor(null)}
+        />
+      )}
+
+      {editing && (
+        <ChoreEditor
+          key={editing.id}
+          initial={draftOf(editing)}
+          rooms={data.rooms}
+          isNew={false}
+          today={today}
+          stacked={!!openState}
+          onSave={draft => saveChore(editing, draft)}
+          onArchive={() => archiveChore(editing)}
+          onCancel={() => setEditor(null)}
         />
       )}
     </div>

@@ -8,13 +8,14 @@ import Sheet from './Sheet'
 import { STATUS_STYLE, capitalize, mins } from './styles'
 
 /** Én oppgave: status, knapper og historikk. */
-export default function ChoreSheet({ state, roomName, history, today, snoozeTo, onClose, onDone, onDoneOtherDay, onSnooze, onUnsnooze, onEditDate, onAddDate }: {
+export default function ChoreSheet({ state, roomName, history, today, snoozeTo, onClose, onEdit, onDone, onDoneOtherDay, onSnooze, onUnsnooze, onEditDate, onAddDate }: {
   state: ChoreState
   roomName: string
   history: DateString[] // nyeste først
   today: DateString
   snoozeTo: DateString
   onClose: () => void
+  onEdit: () => void
   onDone: () => void
   onDoneOtherDay: () => void
   onSnooze: () => void
@@ -32,7 +33,7 @@ export default function ChoreSheet({ state, roomName, history, today, snoozeTo, 
     status === 'green' ? 'Forfaller etter neste ryddedag.'
       : status === 'yellow' ? 'Forfaller innen neste ryddedag.'
         : status === 'orange' ? `Over frist. Blir rød om ${redIn} ${redIn === 1 ? 'dag' : 'dager'}.`
-          : 'Lenge over frist.'
+          : 'Lenge over frist. Tas med på ryddedagen selv om tiden ikke strekker til.'
 
   return (
     <Sheet
@@ -77,8 +78,11 @@ export default function ChoreSheet({ state, roomName, history, today, snoozeTo, 
         )}
       </div>
 
-      {chore.notes && (
-        <p className="mt-4 whitespace-pre-line rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-700">{chore.notes}</p>
+      {(chore.notes || chore.purchase_item) && (
+        <div className="mt-4 space-y-1 rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+          {chore.purchase_item && <p>🛒 Innkjøp: {chore.purchase_item}</p>}
+          {chore.notes && <p className="whitespace-pre-line">{chore.notes}</p>}
+        </div>
       )}
 
       <h3 className="mt-5 text-sm font-semibold text-slate-700">Historikk</h3>
@@ -103,6 +107,10 @@ export default function ChoreSheet({ state, roomName, history, today, snoozeTo, 
       )}
       <button onClick={onAddDate} className="mt-2 text-sm font-semibold text-violet-700">
         + Legg til en dato
+      </button>
+
+      <button onClick={onEdit} className="mt-5 w-full rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+        ✏️ Endre oppgaven
       </button>
     </Sheet>
   )

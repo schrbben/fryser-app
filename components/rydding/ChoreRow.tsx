@@ -11,7 +11,7 @@ export default function ChoreRow({ state, roomName, today, onOpen, onDone, onUnd
   onDone: () => void
   onUndo: () => void
 }) {
-  const { chore, status, due, early, doneToday, snoozed } = state
+  const { chore, status, due, early, doneToday, snoozed, forced } = state
   const style = STATUS_STYLE[status]
 
   return (
@@ -28,6 +28,7 @@ export default function ChoreRow({ state, roomName, today, onOpen, onDone, onUnd
           <span className={`mt-0.5 block text-xs font-semibold ${style.text}`}>
             {dueText(due, today)}
             {early && <span className="font-normal text-slate-500"> · kan tas tidlig</span>}
+            {forced && <span className="font-normal text-slate-500"> · tatt med over tiden</span>}
             {snoozed && <span className="font-normal text-slate-500"> · utsatt</span>}
           </span>
         )}

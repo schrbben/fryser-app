@@ -191,6 +191,7 @@ export type ChoreState = {
   snoozed: boolean // utsatt forbi dagen planen gjelder
   doneToday: boolean
   early: boolean // tatt med i forslaget før fristen
+  forced: boolean // tatt med selv om tiden ikke strekker til, fordi den er rød
 }
 
 export type Plan = {
@@ -217,7 +218,8 @@ export const capTodayActive = (settings: ChoreSettings, today: DateString) =>
  * Lager forslaget:
  * 1. Alt som forfaller på eller før dagen, unntatt det som er utsatt forbi den.
  * 2. Rangert etter hastegrad.
- * 3. Fylles til taket. Den øverste tas alltid med når ingenting er gjort ennå.
+ * 3. Fylles til taket. Den øverste tas alltid med når ingenting er gjort ennå, og det som er rødt
+ *    på dagen tas alltid med, også over taket.
  * 4. Er det tid igjen, fylles det på med det som forfaller innen neste ryddedag
  *    (med ekstra tid: de neste fire ukene), det med nærmest frist først.
  *    Det som er gjort for under et halvt intervall siden tas ikke tidlig.
@@ -248,6 +250,7 @@ export function buildPlan(chores: Chore[], completions: ChoreCompletion[], setti
       snoozed: !!chore.snoozed_until && chore.snoozed_until > day,
       doneToday: doneTodayIds.has(chore.id),
       early: false,
+      forced: false,
     })
   }
 
@@ -268,11 +271,15 @@ export function buildPlan(chores: Chore[], completions: ChoreCompletion[], setti
   let remaining = cap - usedMinutes
   const planned: ChoreState[] = []
   const noRoom: ChoreState[] = []
+  // remaining kan bli negativ når røde oppgaver tas med over taket
 
+  const redOnDay = (s: ChoreState) => daysBetween(s.due, day) >= redLimitDays(s.chore)
   const candidates = active.filter(s => s.due <= day).sort(byUrgency)
   for (const s of candidates) {
+    const fits = s.chore.est_minutes <= remaining
     const forceTop = planned.length === 0 && usedMinutes === 0
-    if (s.chore.est_minutes <= remaining || forceTop) {
+    if (fits || forceTop || redOnDay(s)) {
+      s.forced = !fits && !forceTop
       planned.push(s)
       remaining -= s.chore.est_minutes
     } else {

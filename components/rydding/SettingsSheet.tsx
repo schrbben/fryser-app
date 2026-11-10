@@ -5,9 +5,13 @@ import { WEEKDAYS, WEEKDAY_ORDER, minutesText, type ChoreSettings } from '@/lib/
 import Sheet from './Sheet'
 import { capitalize } from './styles'
 
-export default function SettingsSheet({ settings, onSave, onCancel }: {
+export default function SettingsSheet({ settings, roomCount, archivedCount, onSave, onRooms, onArchive, onCancel }: {
   settings: ChoreSettings
+  roomCount: number
+  archivedCount: number
   onSave: (fields: Pick<ChoreSettings, 'cleaning_weekday' | 'cap_minutes'>) => void
+  onRooms: () => void
+  onArchive: () => void
   onCancel: () => void
 }) {
   const [weekday, setWeekday] = useState(settings.cleaning_weekday)
@@ -55,6 +59,17 @@ export default function SettingsSheet({ settings, onSave, onCancel }: {
         </button>
         <button onClick={onCancel} className="rounded-xl bg-slate-100 px-5 py-3 font-semibold text-slate-700">
           Avbryt
+        </button>
+      </div>
+
+      <div className="mt-6 divide-y divide-slate-100 rounded-2xl border border-slate-200">
+        <button onClick={onRooms} className="flex w-full items-center justify-between px-4 py-3 text-left">
+          <span className="font-semibold text-slate-800">🏠 Rom</span>
+          <span className="text-sm text-slate-500">{roomCount} ›</span>
+        </button>
+        <button onClick={onArchive} className="flex w-full items-center justify-between px-4 py-3 text-left">
+          <span className="font-semibold text-slate-800">🗄️ Arkiverte oppgaver</span>
+          <span className="text-sm text-slate-500">{archivedCount} ›</span>
         </button>
       </div>
     </Sheet>
