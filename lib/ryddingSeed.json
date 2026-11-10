@@ -1,0 +1,88 @@
+{
+  "settings": {"cleaning_weekday": 0, "cap_minutes": 105, "notify_time": "09:00"},
+  "rooms": [
+    {
+      "name": "Kjøkken",
+      "chores": [
+        {"name": "Vaske kjøkkenhåndklær og kluter", "interval_weeks": 1, "priority": "high", "est_minutes": 5},
+        {"name": "Rydde kjøleskapet for gammel mat", "interval_weeks": 1, "priority": "high", "est_minutes": 10},
+        {"name": "Rense kaffemaskinen", "interval_weeks": 4, "priority": "medium", "est_minutes": 10, "purchase_item": "Rensetabletter"},
+        {"name": "Vaske søppelbøtter", "interval_weeks": 4, "priority": "medium", "est_minutes": 15},
+        {"name": "Rense filter i oppvaskmaskinen", "interval_weeks": 8, "priority": "medium", "est_minutes": 10},
+        {"name": "Tørke fronter og håndtak på kjøkkenskap", "interval_weeks": 8, "priority": "low", "est_minutes": 15},
+        {"name": "Avkalke kaffemaskinen", "interval_weeks": 12, "priority": "medium", "est_minutes": 10, "purchase_item": "Avkalkingsmiddel"},
+        {"name": "Bytte/vaske filtermatte i kjøkkenvifta", "interval_weeks": 12, "priority": "medium", "est_minutes": 10, "purchase_item": "Filtermatte"},
+        {"name": "Vaske kjøleskapet innvendig", "interval_weeks": 12, "priority": "medium", "est_minutes": 30},
+        {"name": "Gå gjennom fryseren", "interval_weeks": 12, "priority": "low", "est_minutes": 15},
+        {"name": "Rengjøre stekeovnen", "interval_weeks": 12, "priority": "medium", "est_minutes": 45},
+        {"name": "Rense vannlåsen under vasken", "interval_weeks": 26, "priority": "low", "est_minutes": 20},
+        {"name": "Slipe kniver", "interval_weeks": 26, "priority": "low", "est_minutes": 15},
+        {"name": "Vaske kjøkkenskap innvendig", "interval_weeks": 26, "priority": "low", "est_minutes": 60},
+        {"name": "Avrime fryseren", "interval_weeks": 52, "priority": "medium", "est_minutes": 30},
+        {"name": "Støvsuge bak kjøleskapet", "interval_weeks": 52, "priority": "low", "est_minutes": 15},
+        {"name": "Vaske vegger og tak på kjøkkenet", "interval_weeks": 52, "priority": "low", "est_minutes": 60}
+      ]
+    },
+    {
+      "name": "Bad",
+      "chores": [
+        {"name": "Vaskemaskin: pakning, såpeskuff og tom 90°-vask", "interval_weeks": 4, "priority": "medium", "est_minutes": 15},
+        {"name": "Tørketrommel: skylle kondensator/filterblokk", "interval_weeks": 4, "priority": "medium", "est_minutes": 10},
+        {"name": "Vaske dusjen: vegger, spyle alt inkl. sluk", "interval_weeks": 8, "priority": "medium", "est_minutes": 30},
+        {"name": "Rense pumpefilteret på vaskemaskinen", "interval_weeks": 12, "priority": "medium", "est_minutes": 15},
+        {"name": "Bytte dobørste", "interval_weeks": 26, "priority": "low", "est_minutes": 2, "purchase_item": "Dobørste"},
+        {"name": "Se over silikonfugene", "interval_weeks": 52, "priority": "low", "est_minutes": 10},
+        {"name": "Vaske vegger og tak på badet", "interval_weeks": 52, "priority": "low", "est_minutes": 45}
+      ]
+    },
+    {
+      "name": "Soverom",
+      "chores": [
+        {"name": "Skifte sengetøy", "interval_weeks": 1, "priority": "high", "est_minutes": 15},
+        {"name": "Tørke av nattbordene", "interval_weeks": 12, "priority": "low", "est_minutes": 5},
+        {"name": "Vaske puter", "interval_weeks": 26, "priority": "medium", "est_minutes": 10},
+        {"name": "Snu eller rotere madrassen", "interval_weeks": 26, "priority": "low", "est_minutes": 10},
+        {"name": "Vaske boksene under senga", "interval_weeks": 26, "priority": "low", "est_minutes": 20},
+        {"name": "Vaske dyner", "interval_weeks": 52, "priority": "medium", "est_minutes": 15},
+        {"name": "Vaske klesskapene", "interval_weeks": 52, "priority": "low", "est_minutes": 45},
+        {"name": "Vaske vegger og tak på soverommet", "interval_weeks": 52, "priority": "low", "est_minutes": 60}
+      ]
+    },
+    {
+      "name": "Stue",
+      "chores": [
+        {"name": "Vaske bokhyller og vitrineskap", "interval_weeks": 26, "priority": "low", "est_minutes": 45},
+        {"name": "Vaske putetrekkene på sofaen", "interval_weeks": 52, "priority": "low", "est_minutes": 15},
+        {"name": "Vaske vegger og tak i stua", "interval_weeks": 52, "priority": "low", "est_minutes": 60}
+      ]
+    },
+    {
+      "name": "Gjesterom",
+      "chores": [
+        {"name": "Tørke støv og lufte gjesterommet", "interval_weeks": 12, "priority": "low", "est_minutes": 10},
+        {"name": "Vaske vegger og tak på gjesterommet", "interval_weeks": 52, "priority": "low", "est_minutes": 45}
+      ]
+    },
+    {
+      "name": "Entré",
+      "chores": [
+        {"name": "Riste eller vaske dørmatta", "interval_weeks": 4, "priority": "low", "est_minutes": 5},
+        {"name": "Rydde og vaske skohylla og yttertøyet", "interval_weeks": 12, "priority": "low", "est_minutes": 20},
+        {"name": "Vaske vegger og tak i entréen", "interval_weeks": 52, "priority": "low", "est_minutes": 30}
+      ]
+    },
+    {
+      "name": "Hele boligen",
+      "chores": [
+        {"name": "Rense robotstøvsugeren", "interval_weeks": 4, "priority": "medium", "est_minutes": 10},
+        {"name": "Moppe gulvene", "interval_weeks": 4, "priority": "medium", "est_minutes": 45},
+        {"name": "Tørke støv av ventiler", "interval_weeks": 12, "priority": "medium", "est_minutes": 10},
+        {"name": "Vaske lister", "interval_weeks": 12, "priority": "low", "est_minutes": 45},
+        {"name": "Vaske vinduer", "interval_weeks": 26, "priority": "low", "est_minutes": 60, "fixed_months": [4,10]},
+        {"name": "Bytte filteret i hovedvifta", "interval_weeks": 26, "priority": "medium", "est_minutes": 10, "purchase_item": "Ventilasjonsfilter"},
+        {"name": "Bytte batteri i røykvarslerne", "interval_weeks": 52, "priority": "high", "est_minutes": 10, "fixed_months": [12], "purchase_item": "Batterier"},
+        {"name": "Vaske gardiner", "interval_weeks": 52, "priority": "low", "est_minutes": 20}
+      ]
+    }
+  ]
+}
