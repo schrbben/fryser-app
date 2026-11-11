@@ -15,6 +15,7 @@ import ShoppingList from '@/components/rydding/ShoppingList'
 import TimeSheet from '@/components/rydding/TimeSheet'
 import { STATUS_STYLE, capitalize, mins } from '@/components/rydding/styles'
 import { supabase } from '@/lib/supabase'
+import { fetchRyddingData } from '@/lib/ryddingData'
 import {
   DEFAULT_SETTINGS, STATUS_ORDER, WEEKDAYS, addDays, buildPlan, capTodayActive, cleaningDayInMonths, createDemoData,
   intervalText, lastDoneMap, longDate, relativeDay, shoppingList, shortDate, snoozeTarget, spreadInitialDues, todayString,
@@ -42,27 +43,7 @@ const draftOf = (chore: Chore): ChoreDraft => ({
 const sameMonths = (a: number[] | null, b: number[] | null) => (a ?? []).join(',') === (b ?? []).join(',')
 
 const EMPTY: Data = { rooms: [], chores: [], completions: [], settings: DEFAULT_SETTINGS }
-
-async function fetchAll<T>(table: string, order: string, ascending = true): Promise<T[]> {
-  const rows: T[] = []
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from(table).select('*').order(order, { ascending }).order('id').range(from, from + 999)
-    if (error) throw error
-    rows.push(...((data ?? []) as T[]))
-    if (!data || data.length < 1000) return rows
-  }
-}
-
-async function fetchData(): Promise<Data> {
-  const [rooms, chores, completions, settings] = await Promise.all([
-    fetchAll<ChoreRoom>('chore_rooms', 'sort_order'),
-    fetchAll<Chore>('chores', 'created_at'),
-    fetchAll<ChoreCompletion>('chore_completions', 'done_on', false),
-    supabase.from('chore_settings').select('*').eq('id', 1).maybeSingle(),
-  ])
-  if (settings.error) throw settings.error
-  return { rooms, chores, completions, settings: { ...DEFAULT_SETTINGS, ...(settings.data ?? {}) } }
-}
+const fetchData = fetchRyddingData
 
 const localId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
 

@@ -45,6 +45,7 @@ export type ChoreSettings = {
   notify_time: string // 'HH:MM' eller 'HH:MM:SS' fra databasen
   cap_today: number | null // annen tid enn vanlig, bare for dagen under
   cap_today_on: DateString | null
+  notify_sent_on: DateString | null // dagen morgenvarselet sist ble sendt
 }
 
 // ---------- Faste verdier ----------
@@ -502,7 +503,7 @@ type SeedRoom = { name: string; chores: SeedChore[] }
 /** Samme startdata som i supabase/rydding.sql (generert fra lib/ryddingSeed.json). */
 export const SEED_ROOMS = seed.rooms as SeedRoom[]
 
-export const DEFAULT_SETTINGS: ChoreSettings = { id: 1, ...seed.settings, cap_today: null, cap_today_on: null }
+export const DEFAULT_SETTINGS: ChoreSettings = { id: 1, ...seed.settings, cap_today: null, cap_today_on: null, notify_sent_on: null }
 
 /** Startdataene i minnet, brukt med ?demo så ingenting skrives til databasen. */
 export function createDemoData(): {

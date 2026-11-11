@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { WEEKDAYS, WEEKDAY_ORDER, minutesText, type ChoreSettings } from '@/lib/rydding'
+import PushSettings from './PushSettings'
 import Sheet from './Sheet'
 import { capitalize } from './styles'
 
@@ -10,7 +11,7 @@ export default function SettingsSheet({ settings, roomCount, archivedCount, neve
   roomCount: number
   archivedCount: number
   neverDoneCount: number
-  onSave: (fields: Pick<ChoreSettings, 'cleaning_weekday' | 'cap_minutes'>) => void
+  onSave: (fields: Pick<ChoreSettings, 'cleaning_weekday' | 'cap_minutes' | 'notify_time'>) => void
   onRooms: () => void
   onArchive: () => void
   onLastDone: () => void
@@ -18,6 +19,7 @@ export default function SettingsSheet({ settings, roomCount, archivedCount, neve
 }) {
   const [weekday, setWeekday] = useState(settings.cleaning_weekday)
   const [cap, setCap] = useState(settings.cap_minutes)
+  const [notifyTime, setNotifyTime] = useState(settings.notify_time.slice(0, 5))
   const step = (delta: number) => setCap(m => Math.min(600, Math.max(15, m + delta)))
 
   return (
@@ -55,8 +57,24 @@ export default function SettingsSheet({ settings, roomCount, archivedCount, neve
       </div>
       <p className="mt-2 text-xs text-slate-500">Har dere mer eller mindre tid én dag, bruk heller «Endre tid i dag».</p>
 
+      <h3 className="mt-5 text-sm font-semibold text-slate-700">Varsel på ryddedagen</h3>
+      <label className="mt-2 flex items-center gap-3 text-sm text-slate-600">
+        Klokka
+        <input
+          type="time"
+          step={900}
+          value={notifyTime}
+          onChange={e => setNotifyTime(e.target.value)}
+          className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-base text-slate-900"
+        />
+      </label>
+      <p className="mt-1 text-xs text-slate-500">Varselet kommer innen et kvarter etter klokkeslettet, bare på ryddedagen.</p>
+
       <div className="mt-5 flex gap-2">
-        <button onClick={() => onSave({ cleaning_weekday: weekday, cap_minutes: cap })} className="flex-1 rounded-xl bg-violet-600 py-3 font-bold text-white">
+        <button
+          onClick={() => onSave({ cleaning_weekday: weekday, cap_minutes: cap, notify_time: /^\d\d:\d\d$/.test(notifyTime) ? notifyTime : settings.notify_time })}
+          className="flex-1 rounded-xl bg-violet-600 py-3 font-bold text-white"
+        >
           Lagre
         </button>
         <button onClick={onCancel} className="rounded-xl bg-slate-100 px-5 py-3 font-semibold text-slate-700">
@@ -64,7 +82,12 @@ export default function SettingsSheet({ settings, roomCount, archivedCount, neve
         </button>
       </div>
 
-      <div className="mt-6 divide-y divide-slate-100 rounded-2xl border border-slate-200">
+      <section className="mt-6 rounded-2xl border border-slate-200 px-4 py-3">
+        <h3 className="mb-2 font-semibold text-slate-800">🔔 Varsler på denne telefonen</h3>
+        <PushSettings />
+      </section>
+
+      <div className="mt-4 divide-y divide-slate-100 rounded-2xl border border-slate-200">
         <button onClick={onLastDone} className="flex w-full items-center justify-between px-4 py-3 text-left">
           <span>
             <span className="block font-semibold text-slate-800">📋 Legg inn sist gjort</span>
