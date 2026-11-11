@@ -48,8 +48,16 @@ export async function GET(request: Request) {
     if (error) throw error
     if (!claimed?.length) return NextResponse.json({ sent: 0, reason: 'allerede sendt i dag', today, time })
 
-    const result = await sendPush(message!)
-    return NextResponse.json({ ...result, today, time, message })
+    // Kom ingenting fram, frigis dagen igjen, så neste kall (om et kvarter) prøver på nytt
+    const release = () => supabase.from('chore_settings').update({ notify_sent_on: settings.notify_sent_on }).eq('id', 1)
+    try {
+      const result = await sendPush(message!)
+      if (result.sent === 0 && result.failed > 0) await release()
+      return NextResponse.json({ ...result, today, time, message })
+    } catch (error) {
+      await release()
+      throw error
+    }
   } catch (error) {
     console.error(error)
     return NextResponse.json({ ok: false, error: String((error as Error).message ?? error) }, { status: 500 })
