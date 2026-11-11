@@ -3,10 +3,11 @@
 import { dueText, intervalText, type ChoreState, type DateString } from '@/lib/rydding'
 import { STATUS_STYLE, mins } from './styles'
 
-export default function ChoreRow({ state, roomName, today, onOpen, onDone, onUndo }: {
+export default function ChoreRow({ state, roomName, today, toBuy = false, onOpen, onDone, onUndo }: {
   state: ChoreState
   roomName: string
   today: DateString
+  toBuy?: boolean // varen står på handlelista
   onOpen: () => void
   onDone: () => void
   onUndo: () => void
@@ -29,6 +30,7 @@ export default function ChoreRow({ state, roomName, today, onOpen, onDone, onUnd
             {dueText(due, today)}
             {early && <span className="font-normal text-slate-500"> · kan tas tidlig</span>}
             {forced && <span className="font-normal text-slate-500"> · tatt med over tiden</span>}
+            {toBuy && <span className="font-normal text-amber-700"> · 🛒 {chore.purchase_item}</span>}
             {snoozed && <span className="font-normal text-slate-500"> · utsatt</span>}
           </span>
         )}

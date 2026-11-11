@@ -11,12 +11,13 @@ import DoneDateSheet from '@/components/rydding/DoneDateSheet'
 import LastDoneSheet from '@/components/rydding/LastDoneSheet'
 import RoomsSheet from '@/components/rydding/RoomsSheet'
 import SettingsSheet from '@/components/rydding/SettingsSheet'
+import ShoppingList from '@/components/rydding/ShoppingList'
 import TimeSheet from '@/components/rydding/TimeSheet'
 import { STATUS_STYLE, capitalize, mins } from '@/components/rydding/styles'
 import { supabase } from '@/lib/supabase'
 import {
   DEFAULT_SETTINGS, STATUS_ORDER, WEEKDAYS, addDays, buildPlan, capTodayActive, cleaningDayInMonths, createDemoData,
-  intervalText, lastDoneMap, longDate, relativeDay, shortDate, snoozeTarget, spreadInitialDues, todayString,
+  intervalText, lastDoneMap, longDate, relativeDay, shoppingList, shortDate, snoozeTarget, spreadInitialDues, todayString,
   type Chore, type ChoreCompletion, type ChoreRoom, type ChoreSettings, type ChoreState, type DateString,
 } from '@/lib/rydding'
 
@@ -285,6 +286,19 @@ export default function RyddingPage() {
     ])
   }
 
+  // ---------- Innkjøp ----------
+
+  const markBought = (state: ChoreState) => {
+    const { chore, due } = state
+    const before = chore.purchase_done_for
+    patchChore(chore.id, { purchase_done_for: due })
+    showToast(`🛒 ${chore.purchase_item} er kjøpt`, [
+      { label: 'Angre', run: () => { setToast(null); patchChore(chore.id, { purchase_done_for: before }) } },
+    ])
+  }
+
+  const unmarkBought = (chore: Chore) => patchChore(chore.id, { purchase_done_for: null })
+
   // ---------- Oppstart: sist gjort ----------
 
   /**
@@ -495,6 +509,7 @@ export default function RyddingPage() {
           state={s}
           roomName={roomName.get(s.chore.room_id) ?? ''}
           today={today}
+          toBuy={toBuyIds.has(s.chore.id)}
           onOpen={() => setOpenId(s.chore.id)}
           onDone={() => markDone(s.chore)}
           onUndo={() => undoToday(s.chore)}
@@ -521,6 +536,8 @@ export default function RyddingPage() {
     )
   }
 
+  const shopping = shoppingList(plan, today)
+  const toBuyIds = new Set(shopping.map(s => s.chore.id))
   const plannedShown = plan.planned.filter(matches)
   const laterShown = plan.later.filter(matches)
   const openState = openId ? plan.states.get(openId) : undefined
@@ -628,6 +645,8 @@ export default function RyddingPage() {
             <p className="mt-2 text-xs text-violet-100">Den øverste oppgaven tar lengre tid enn dere har, men er tatt med fordi den haster mest.</p>
           ) : null}
         </section>
+
+        <ShoppingList items={shopping} today={today} onBought={markBought} onOpen={s => setOpenId(s.chore.id)} />
 
         {/* Filter */}
         <div className="mt-4">
@@ -755,8 +774,11 @@ export default function RyddingPage() {
           history={historyOf(openState.chore.id)}
           today={today}
           snoozeTo={snoozeTo}
+          onList={toBuyIds.has(openState.chore.id)}
           onClose={() => setOpenId(null)}
           onEdit={() => setEditor({ mode: 'edit', choreId: openState.chore.id })}
+          onBought={() => markBought(openState)}
+          onUnbought={() => unmarkBought(openState.chore)}
           onDone={() => markDone(openState.chore)}
           onDoneOtherDay={() => setDatePick({ choreId: openState.chore.id, from: null })}
           onSnooze={() => snooze(openState.chore)}

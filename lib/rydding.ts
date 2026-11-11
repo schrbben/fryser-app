@@ -322,6 +322,30 @@ export function buildPlan(chores: Chore[], completions: ChoreCompletion[], setti
   }
 }
 
+// ---------- Innkjøp ----------
+
+/**
+ * Varen er kjøpt for denne fristen. `purchase_done_for` er fristen da varen ble huket av. Når oppgaven
+ * gjøres, flytter fristen seg forbi den, og varen må kjøpes på nytt neste gang.
+ */
+export const isBought = (chore: Chore, due: DateString) => !!chore.purchase_done_for && chore.purchase_done_for >= due
+
+/**
+ * Handlelista: varer til oppgaver som forfaller innen en uke, eller som er med i forslaget
+ * (også de som tas tidlig). Står der til varen er kjøpt eller oppgaven gjort.
+ */
+export function shoppingList(plan: Plan, today: DateString): ChoreState[] {
+  const planned = new Set(plan.planned.map(s => s.chore.id))
+  return [...plan.states.values()]
+    .filter(s =>
+      !!s.chore.purchase_item &&
+      !s.doneToday &&
+      !isBought(s.chore, s.due) &&
+      (daysBetween(today, s.due) <= PURCHASE_LEAD_DAYS || planned.has(s.chore.id))
+    )
+    .sort((a, b) => a.due.localeCompare(b.due) || a.chore.name.localeCompare(b.chore.name, 'nb'))
+}
+
 /** Ryddedagen etter den forslaget gjelder, brukt når en oppgave utsettes. */
 export function snoozeTarget(plan: Plan, weekday: number): DateString {
   return cleaningDayOnOrAfter(addDays(plan.day, 1), weekday)

@@ -1,21 +1,24 @@
 'use client'
 
 import {
-  PRIORITIES, daysBetween, dueText, intervalText, longDate, redLimitDays, relativeDay, shortDate,
+  PRIORITIES, PURCHASE_LEAD_DAYS, daysBetween, dueText, intervalText, isBought, longDate, redLimitDays, relativeDay, shortDate,
   type ChoreState, type DateString,
 } from '@/lib/rydding'
 import Sheet from './Sheet'
 import { STATUS_STYLE, capitalize, mins } from './styles'
 
 /** Én oppgave: status, knapper og historikk. */
-export default function ChoreSheet({ state, roomName, history, today, snoozeTo, onClose, onEdit, onDone, onDoneOtherDay, onSnooze, onUnsnooze, onEditDate, onAddDate }: {
+export default function ChoreSheet({ state, roomName, history, today, snoozeTo, onList, onClose, onEdit, onBought, onUnbought, onDone, onDoneOtherDay, onSnooze, onUnsnooze, onEditDate, onAddDate }: {
   state: ChoreState
   roomName: string
   history: DateString[] // nyeste først
   today: DateString
   snoozeTo: DateString
+  onList: boolean // varen står på handlelista
   onClose: () => void
   onEdit: () => void
+  onBought: () => void
+  onUnbought: () => void
   onDone: () => void
   onDoneOtherDay: () => void
   onSnooze: () => void
@@ -28,6 +31,7 @@ export default function ChoreSheet({ state, roomName, history, today, snoozeTo, 
   const overdue = daysBetween(due, today)
   const redIn = redLimitDays(chore) - overdue
   const snoozedUntil = chore.snoozed_until && chore.snoozed_until > today ? chore.snoozed_until : null
+  const bought = isBought(chore, due)
 
   const explanation =
     status === 'green' ? 'Forfaller etter neste ryddedag.'
@@ -78,11 +82,32 @@ export default function ChoreSheet({ state, roomName, history, today, snoozeTo, 
         )}
       </div>
 
-      {(chore.notes || chore.purchase_item) && (
-        <div className="mt-4 space-y-1 rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
-          {chore.purchase_item && <p>🛒 Innkjøp: {chore.purchase_item}</p>}
-          {chore.notes && <p className="whitespace-pre-line">{chore.notes}</p>}
+      {chore.purchase_item && (
+        <div className={`mt-4 flex items-center gap-3 rounded-xl border px-3 py-2.5 ${bought ? 'border-slate-200 bg-slate-50' : 'border-amber-200 bg-amber-50'}`}>
+          <span className="min-w-0 flex-1 text-sm">
+            <span className="block font-semibold text-slate-800">🛒 {chore.purchase_item}</span>
+            <span className="block text-xs text-slate-600">
+              {bought
+                ? `Kjøpt til fristen ${shortDate(chore.purchase_done_for!, today)}.`
+                : onList
+                  ? 'Står på handlelista.'
+                  : `Kommer på handlelista ${PURCHASE_LEAD_DAYS} dager før fristen, eller når oppgaven foreslås.`}
+            </span>
+          </span>
+          {bought ? (
+            <button onClick={onUnbought} className="flex-shrink-0 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">
+              Ikke kjøpt
+            </button>
+          ) : (
+            <button onClick={onBought} className="flex-shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-sm font-semibold text-amber-800 shadow-sm hover:bg-amber-100">
+              ✓ Kjøpt
+            </button>
+          )}
         </div>
+      )}
+
+      {chore.notes && (
+        <p className="mt-4 whitespace-pre-line rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-700">{chore.notes}</p>
       )}
 
       <h3 className="mt-5 text-sm font-semibold text-slate-700">Historikk</h3>
